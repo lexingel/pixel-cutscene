@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validateTimeline } from "../src/core/timeline";
 import { frameZoom, renderFrame, zoomAt } from "../src/core/render";
-import { zoomFrame } from "../src/core/raster";
+import { unzoom, zoomFrame, zoomView } from "../src/core/raster";
 import type { Img } from "../src/core/kit";
 import type { Timeline, WideShot } from "../src/core/types";
 import { insertShot, panShot, splitShot, transition } from "../src/ui/timelineEditor";
@@ -149,5 +149,33 @@ describe("review fixes", () => {
     const z0 = frameZoom(p, 0)!, z1 = frameZoom(p, 2)!;
     expect(z0.x).toBeCloseTo(50, 0);
     expect(z1.x).toBeGreaterThan(z0.x + 5);
+  });
+});
+
+describe("zoomed preview and draft", () => {
+  it("a point on the zoomed picture maps back to the art pixel drawn there", () => {
+    const src: Img = { w: 40, h: 30, px: new Uint8ClampedArray(40 * 30 * 4) };
+    for (let i = 0; i < 1200; i++) src.px.set([i & 255, i >> 8, 7, 255], i * 4);
+    for (const [z, fx, fy] of [[2, 20, 15], [1.7, 3, 28], [3, 39, 0]]) {
+      const out = new Uint8ClampedArray(src.px.length);
+      zoomFrame(src, z, fx, fy, 1, out);
+      const v = zoomView(40, 30, z, fx, fy, 1);
+      for (const [X, Y] of [[0, 0], [13, 7], [39, 29], [21, 16]]) {
+        const p = unzoom(v, X + 0.5, Y + 0.5, 40, 30, 1);
+        const i = Math.floor(p.y) * 40 + Math.floor(p.x);
+        expect(Array.from(out.slice((Y * 40 + X) * 4, (Y * 40 + X) * 4 + 4))).toEqual(Array.from(src.px.slice(i * 4, i * 4 + 4)));
+      }
+    }
+  });
+  it("a zoomed draft frame leaves the DRAFT mark to the exporter, so it is not blown up", () => {
+    const white = (px: Uint8ClampedArray) => { let n = 0; for (let j = 0; j < px.length; j += 4) if (px[j] === 255 && px[j + 1] === 255) n++; return n; };
+    const t = tl();
+    const p = { tl: t, kit: { chars: {}, faces: {}, assets: {} } as any, img: () => null, draft: true, W: 200, H: 120 };
+    const out = { w: 200, h: 120, px: new Uint8ClampedArray(200 * 120 * 4) };
+    renderFrame(p, 1, out);
+    expect(white(out.px)).toBeGreaterThan(0);
+    (t.shots[0] as WideShot).zoom = { from: 2, to: 2, x: 100, y: 60 };
+    renderFrame(p, 1, out);
+    expect(white(out.px)).toBe(0);
   });
 });

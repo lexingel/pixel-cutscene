@@ -24,7 +24,7 @@ const GLYPHS: Record<string, string[]> = {
   T: ["11111", "..1..", "..1..", "..1..", "..1..", "..1..", "..1.."],
 };
 
-function watermark(out: Img): void {
+export function watermark(out: Img): void {
   // small, top-right: the action is usually low in the frame (feet on the floor)
   const k = Math.max(1, Math.floor(out.h / 180));
   const x0 = out.w - 4 * k - 29 * k, y0 = 4 * k;
@@ -120,7 +120,7 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
   fade(out, Math.min(Math.max(aIn, aOut, 0), 1));
   const aFlash = (shot.flash ?? 0) > 0 ? 1 - into / shot.flash! : 0;
   if (aFlash > 0) for (let j = 0; j < out.px.length; j += 4) for (let c = 0; c < 3; c++) out.px[j + c] += (255 - out.px[j + c]) * aFlash;
-  if (draft) watermark(out);
+  if (draft && !frameZoom(p, t)) watermark(out); // a zoomed frame gets its mark after the zoom (exporter), at its normal size
 }
 
 /** The zoom at t in this shot (1 when it has none). */

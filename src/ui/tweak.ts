@@ -6,7 +6,7 @@ import { moveLabel } from "../core/moves";
 import { missingReport } from "../core/missing";
 import type { Project } from "../core/project";
 import { actorFocus, frameZoom, fxEnd, newFxDur, renderFrame } from "../core/render";
-import { zoomFrame } from "../core/raster";
+import { unzoom, zoomFrame, zoomView } from "../core/raster";
 import { pose, shotAt } from "../core/acting";
 import { charFrames } from "../core/frames";
 import { validateTimeline } from "../core/timeline";
@@ -137,7 +137,8 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     if (step) { e.preventDefault(); e.stopPropagation(); setDrawer($(".drawer").getBoundingClientRect().width + step); saveDrawer(); }
   };
 
-  const zoomed = new Uint8ClampedArray(W * H * 4); // preview zoom is nearest-neighbour at canvas size (approximate); the export zooms in whole output pixels
+  const zoomed = new Uint8ClampedArray(W * H * 4); // preview zoom is nearest-neighbour at canvas size
+  let view: ReturnType<typeof zoomView> | null = null; // the zoom on screen now: picking, dragging and overlays go through it
   function paint() {
     const T = tl();
     t = Math.min(Math.max(t, 0), T.duration);
@@ -146,6 +147,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     else frame.px.fill(0);
     const z = T.shots.length ? frameZoom(inp, t) : null;
     if (z) zoomFrame(frame, z.z, z.x, z.y, 1, zoomed);
+    view = z ? zoomView(W, H, z.z, z.x, z.y, 1) : null;
     g.putImageData(new ImageData(z ? zoomed : frame.px, W, H), 0, 0);
     $("[data-testid=timecode]").innerHTML = `<b>${t.toFixed(2)}</b> / ${T.duration.toFixed(2)} s <span class="muted">· frame ${Math.round(t * FPS)}</span>`;
     tracks.style.setProperty("--p", String(t / T.duration));
@@ -362,10 +364,11 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     renderDrawer($(".drawer"), p, add);
   }
   canvas.ondragover = (e) => isItemDrag(e) && e.preventDefault();
-  // pointer -> canvas pixels (not rounded); the drop and the stage editing share it
-  const canvasPt = (e: { clientX: number; clientY: number }) => {
+  // pointer -> frame pixels before any zoom (not rounded); the drop and the stage editing share it
+  const canvasPt = (e: { clientX: number; clientY: number }, v = view) => {
     const r = canvas.getBoundingClientRect();
-    return { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height };
+    const c = { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height };
+    return v ? unzoom(v, c.x, c.y, W, H, 1) : c;
   };
   canvas.ondrop = (e) => {
     const it = droppedItem(e);
@@ -393,13 +396,15 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   };
   function drawOverlay() {
     const o = over.getContext("2d")!;
+    o.setTransform(1, 0, 0, 1, 0, 0);
     o.clearRect(0, 0, W, H);
+    if (view) o.setTransform(view.P, 0, 0, view.P, W / 2 - view.cx * view.P, H / 2 - view.cy * view.P); // overlays sit on the zoomed picture
     const T = tl();
     const cam = camNow(T, t);
     const found = selected ? find(T, selected) : null;
     if (!cam || !found || playing) return;
     o.fillStyle = o.strokeStyle = "#f5b94a";
-    o.lineWidth = 1;
+    o.lineWidth = 1 / (view?.P ?? 1);
     const actor = found.kind === "actor" ? (found.e as Actor) : found.kind === "action" ? (found.actor as Actor) : null;
     if (actor) {
       for (const w of walks(T, p.kit, imgOf, actor)) {
@@ -425,7 +430,8 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const cam = camNow(T0, t);
     if (e.button !== 0 || !cam || playing) return;
     canvas.focus();
-    const c = canvasPt(e);
+    const v0 = view; // a drag keeps the view it started in (a zoom that follows the dragged actor would chase it)
+    const c = canvasPt(e, v0);
     const f = selectedFx();
     let target: Target | null = null;
     let aim = false;
@@ -450,7 +456,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     dragging = true;
     const end = () => ((dragging = false), (canvas.onpointermove = canvas.onpointerup = canvas.onpointercancel = null));
     canvas.onpointermove = (m) => {
-      const q = canvasPt(m);
+      const q = canvasPt(m, v0);
       if (aim) aimLive = { id: f!.id, deg: aimAngle(f!, cam, q.x, q.y) };
       else p.tl = moveBy(T0, target!, q.x - c.x, q.y - c.y).tl; // live only: no history, no save
       paint();
@@ -463,7 +469,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     };
     canvas.onpointerup = (u) => {
       end();
-      const q = canvasPt(u);
+      const q = canvasPt(u, v0);
       p.tl = T0;
       aimLive = null;
       if (aim) {

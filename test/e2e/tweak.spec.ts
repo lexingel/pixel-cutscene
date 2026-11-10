@@ -305,3 +305,46 @@ test("tweak: a close-up's zoom shows in the inspector and can be changed; Space 
   await expect(page.locator(".clip.shot")).toHaveCount(shots + 1);
   await expect(page.getByTestId("timecode")).toContainText("0.03");
 });
+
+test("tweak: in a close-up, clicking the character on screen picks them", async ({ page }) => {
+  await openFixture(page);
+  await page.getByRole("button", { name: "③ Tweak" }).click();
+  const canvas = page.getByTestId("preview");
+  await expect(canvas).toHaveAttribute("data-ready", "1");
+  await page.keyboard.press("ArrowRight");
+  await page.getByRole("button", { name: /\+ Shot/ }).click();
+  await page.getByRole("menuitem", { name: /^Close-up on / }).first().click();
+  await page.keyboard.press("Escape"); // drop the shot selection
+  // a point on screen that shows the character once zoomed, but is empty in the same spot of the unzoomed frame
+  const pt = await page.evaluate(async () => {
+    const src = (f: string) => `/src/core/${f}.ts`;
+    const { frameZoom } = await import(src("render"));
+    const { zoomView } = await import(src("raster"));
+    const { hitTest } = await import("/src/ui/stageEdit.ts" as string);
+    const { loadProject } = await import(src("store"));
+    let p = await loadProject(location.hash.split("/").pop()!);
+    for (let i = 0; i < 30 && !p.tl.shots.some((s: any) => s.zoom); i++) { // the edit is saved a moment later
+      await new Promise((r) => setTimeout(r, 100));
+      p = await loadProject(location.hash.split("/").pop()!);
+    }
+    const imgs = new Map();
+    for (const [path, blob] of p.files as Map<string, Blob>) {
+      const bmp = await createImageBitmap(blob);
+      imgs.set(path, { w: bmp.width, h: bmp.height, px: new Uint8ClampedArray(bmp.width * bmp.height * 4) });
+    }
+    const { W, H } = p.canvas, img = (k: string) => imgs.get(k) ?? null;
+    const z = frameZoom({ tl: p.tl, kit: p.kit, img, draft: false, W, H }, 1)!;
+    const v = zoomView(W, H, z.z, z.x, z.y, 1);
+    const id = p.tl.actors[0].id, hit = (x: number, y: number) => hitTest(p.tl, p.kit, img, 1, x, y);
+    for (let Y = 0; Y < H; Y += 2) for (let X = 0; X < W; X += 2) {
+      const f = { x: v.cx + (X + 0.5 - W / 2) / v.P, y: v.cy + (Y + 0.5 - H / 2) / v.P };
+      if (hit(f.x, f.y) === id && hit(X + 0.5, Y + 0.5) !== id) return { x: (X + 0.5) / W, y: (Y + 0.5) / H, name: id };
+    }
+    return null;
+  });
+  expect(pt).not.toBeNull();
+  const box = (await canvas.boundingBox())!;
+  await canvas.click({ position: { x: box.width * pt!.x, y: box.height * pt!.y } });
+  await expect(page.locator(".inspector h2")).toHaveText("Actor");
+  await expect(page.locator(".track-label[data-actor]").first()).toHaveClass(/sel/); // the first actor, the one in the close-up
+});

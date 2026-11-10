@@ -61,11 +61,19 @@ export function crop(img: Img, x: number, y: number, w: number, h: number): Img 
  * With k > 1 every art pixel becomes a whole number of output pixels (z is rounded to steps of 1/k);
  * the view is pulled in so it never shows past the picture's edges.
  */
-export function zoomFrame(src: Img, z: number, fx: number, fy: number, k: number, out: Uint8ClampedArray): void {
-  const P = Math.max(1, k * z); // output pixels per art pixel: whole at a whole zoom, fractional (smooth) while zooming
-  const W = src.w * k, H = src.h * k;
+/** The view a zoom shows of a w x h frame drawn at k output pixels per pixel: its centre (clamped so it stays in the picture) and output pixels per art pixel. */
+export function zoomView(w: number, h: number, z: number, fx: number, fy: number, k: number): { cx: number; cy: number; P: number } {
+  const P = Math.max(1, k * z); // whole at a whole zoom, fractional (smooth) while zooming
   const cl = (c: number, n: number) => { const half = (n * k) / (2 * P); return Math.min(Math.max(c, half), n - half); };
-  const cx = cl(fx, src.w), cy = cl(fy, src.h);
+  return { cx: cl(fx, w), cy: cl(fy, h), P };
+}
+/** The frame point under output point (X, Y) of a zoomed view: the inverse of zoomFrame. */
+export const unzoom = (v: { cx: number; cy: number; P: number }, X: number, Y: number, w: number, h: number, k: number) =>
+  ({ x: v.cx + (X - (w * k) / 2) / v.P, y: v.cy + (Y - (h * k) / 2) / v.P });
+
+export function zoomFrame(src: Img, z: number, fx: number, fy: number, k: number, out: Uint8ClampedArray): void {
+  const W = src.w * k, H = src.h * k;
+  const { cx, cy, P } = zoomView(src.w, src.h, z, fx, fy, k);
   const s = new Uint32Array(src.px.buffer, src.px.byteOffset, src.w * src.h);
   const d = new Uint32Array(out.buffer, out.byteOffset, W * H);
   const col = Array.from({ length: W }, (_, X) => Math.min(src.w - 1, Math.max(0, Math.floor(cx + (X + 0.5 - W / 2) / P))));
