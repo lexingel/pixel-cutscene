@@ -9,18 +9,20 @@ import { confirmDialog } from "./dialogs";
 import {
   COST, MOTION, SIZES, approvePiece, approveRef, balance, genAnimInto, genBackgroundInto, genCharacter, genFaceInto, refPath, type At,
 } from "../gen/pixellab";
-import { decode, encode } from "./cast";
+import { decode, encode, playing } from "./cast";
 import { toast } from "./dialogs";
+import { isRunning, track } from "./inflight";
+import { replaceFlames } from "./addMove";
 
 export const NO_KEY = "Add a PixelLab key in Settings to generate.";
 export const pixellabKey = () => getKeys().pixellab;
 
 // The ordinary confirm plus a labelled text box above its buttons.
-const askWithMotion = (motion: { text: string }): typeof confirmDialog => (...a) => {
+const askWithMotion = (motion: { text: string; label?: string; hint?: string }): typeof confirmDialog => (...a) => {
   const res = confirmDialog(...a);
   const d = document.body.lastElementChild!;
-  const box = Object.assign(document.createElement("textarea"), { rows: 3, value: motion.text });
-  box.setAttribute("aria-label", "Motion prompt");
+  const box = Object.assign(document.createElement("textarea"), { rows: 7, value: motion.text, className: "motion", placeholder: motion.hint ?? "" });
+  box.setAttribute("aria-label", motion.label ?? "Motion prompt");
   box.oninput = () => (motion.text = box.value);
   d.querySelector("p")!.after(box);
   return res;
@@ -29,16 +31,16 @@ const askWithMotion = (motion: { text: string }): typeof confirmDialog => (...a)
 // Confirm (with the live balance in the note), then run. False when cancelled or failed; a failure changes nothing.
 // `motion`: a text box in the confirm holds the animation prompt; the user's edit lands in motion.text before `run`.
 export async function paid(
-  action: string, cost: string, calls: number, run: (key: string, t: PaidTicket) => Promise<void>, motion?: { text: string },
+  action: string, cost: string, calls: number, run: (key: string, t: PaidTicket) => Promise<void>, motion?: { text: string; label?: string; hint?: string },
 ): Promise<boolean> {
   const key = pixellabKey();
   if (!key) return toast(NO_KEY, "error"), false;
+  if (isRunning(action)) return toast(`${action} is already running. Wait for it to finish.`), false;
   const bal = await balance(key).then((b) => b.text, () => "could not be read");
   const t = await confirmPaid("pixellab", action, `${cost} Your balance: ${bal}.`, calls, motion ? askWithMotion(motion) : confirmDialog);
   if (!t) return false;
   try {
-    await run(key, t);
-    return true;
+    return await track(action, () => run(key, t));
   } catch (e) {
     toast((e as Error).message, "error");
     return false;
@@ -57,7 +59,7 @@ export async function busy<T>(el: HTMLElement, run: () => Promise<T>): Promise<T
   }
 }
 
-const words = (id: string) => id.replace(/[_-]+/g, " ").trim();
+export const words = (id: string) => id.replace(/[_-]+/g, " ").trim();
 
 // What a Needs-approval Generate button would make, or why it cannot.
 export function genPlan(p: Project, t: At & { asset?: string }): { label: string; why?: string } {
@@ -70,16 +72,42 @@ export function genPlan(p: Project, t: At & { asset?: string }): { label: string
   return { label: "Generate" };
 }
 
-export function generate(p: Project, t: At & { asset?: string }, done: () => void): Promise<boolean> {
-  const note = p.description.trim();
+/** The label of a generation, also its in-flight key. */
+export const genAction = (t: At) =>
+  t.kind === "anim" ? `Generate ${words(t.char)} ${words(t.anim)}` : t.kind === "face" ? `Generate ${words(t.face)}'s ${words(t.expr)} face` : `Generate background ${words(t.id)}`;
+
+// `replace`: Redo of an approved animation (Cast). The scene's story is never sent with a background: it names the
+// characters, and PixelLab paints them in.
+export function generate(p: Project, t: At & { asset?: string }, done: () => void, opts: { replace?: boolean } = {}): Promise<boolean> {
   // attack and breathe are written out in a prompt the user may edit before paying
   const motion = t.kind === "anim" && (t.anim === "attack" || t.anim === "breathe") ? { text: MOTION[t.anim] } : undefined;
   const ok =
-    t.kind === "anim" ? paid(`Generate ${t.char} ${t.anim}`, COST.anim, 1, (k, tk) => genAnimInto(p, k, t.char, t.anim, "", tk, undefined, motion?.text.trim() || undefined), motion)
-    : t.kind === "face" ? paid(`Generate ${t.face}'s ${t.expr} face`, COST.face, 1, (k, tk) => genFaceInto(p, k, t.face, t.expr, tk))
-    : paid(`Generate background ${t.id}`, COST.background, 1, (k, tk) =>
-        genBackgroundInto(p, k, t.id, `side-view game background, ${words(t.id)}${note ? `. Scene: ${note.slice(0, 600)}` : ""}`, tk));
+    t.kind === "anim" ? paid(genAction(t), COST.anim, 1, async (k, tk) => {
+        await genAnimInto(p, k, t.char, t.anim, "", tk, undefined, motion?.text.trim() || undefined, opts);
+        if (t.anim === "breathe" && p.tl) p.tl = await replaceFlames(p, p.tl, t.char); // the mouth moved
+      }, motion)
+    : t.kind === "face" ? paid(genAction(t), COST.face, 1, (k, tk) => genFaceInto(p, k, t.face, t.expr, tk))
+    : paid(genAction(t), COST.background, 1, (k, tk) => genBackgroundInto(p, k, t.id, `side-view game background, ${words(t.id)}`, tk));
   return ok.then((r) => (r && (toast("Generated. Look it over, then Approve or Redo."), done()), r));
+}
+
+/** A new background for a wide shot from a short description (no story, no characters); it lands unapproved and the
+ * shot points at it at bg_scale 2 (it is made at half the canvas size). Returns the asset id, or null. */
+export async function generateShotBg(p: Project, shotId: string, apply: (bg: string) => void): Promise<string | null> {
+  const desc = { text: "", label: "Background description", hint: "a rocky field at dusk, mountains far away" };
+  let made: string | null = null;
+  const ok = await paid(`Generate a background`, COST.background, 1, async (k, tk) => {
+    const text = desc.text.trim().slice(0, 300) || "an open grassy field";
+    const slug = text.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 24) || "background";
+    let id = slug;
+    for (let n = 2; p.kit.assets[id]; n++) id = `${slug}_${n}`;
+    await genBackgroundInto(p, k, id, `side-view game background, ${text}`, tk);
+    made = id;
+  }, desc);
+  if (!ok || !made) return null;
+  apply(made);
+  toast("Generated. Look it over in Needs approval, then Approve or Redo.");
+  return made;
 }
 
 const imgEl = async (img: Img, urls: string[], cls = "px frame") => {
@@ -217,13 +245,16 @@ export function renderGenChar(
       ? "Approve the idle to use this character in scenes, or Redo it."
       : "Approved. Next, its idle animation. The character can be used once its idle is approved.";
     const strip = body.querySelector<HTMLElement>(".strip")!;
+    const srcs: string[] = [];
     for (const path of idle?.frames ?? [refPath(name)]) {
       const blob = p.files.get(path);
       if (!blob) continue;
       const src = URL.createObjectURL(blob);
       urls.push(src);
+      srcs.push(src);
       strip.append(Object.assign(document.createElement("img"), { src, alt: "", className: "px frame" }));
     }
+    if (srcs.length > 1) strip.before(playing(srcs, "px frame playing")); // the motion, above its frames
     const acts = body.querySelector<HTMLElement>(".acts")!;
     const btn = (text: string, cls: string, on: () => void) => {
       const b = Object.assign(document.createElement("button"), { type: "button", className: `btn ${cls}`, textContent: text });

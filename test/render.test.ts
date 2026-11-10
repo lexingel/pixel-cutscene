@@ -282,7 +282,6 @@ describe("v1 projects render unchanged", () => {
 });
 
 describe("hurt and dust drawing", () => {
-  const red = [255, 59, 59, 255];
   const stage = () => {
     const t = flat(tl());
     t.actors = [{ id: "a", char: "c", x: 50, y: 60, actions: [{ id: "h", t: 1, do: "hurt" }, { id: "d", t: 2, do: "dust", dur: 1.5 }] }];
@@ -290,9 +289,9 @@ describe("hurt and dust drawing", () => {
     kit.chars.c = { view: "side", anims: { idle: { ...piece, frames: ["c.png"] } } };
     return setup(t, kit, { "c.png": solid(10, 20, 0, 255, 0) });
   };
-  test("flash is #ff3b3b for two frames then normal", () => {
+  test("flash is a half #ff3b3b tint for two frames then normal", () => {
     const r = stage();
-    r.draw(1.0); expect(at(r.out, 50, 50)).toEqual(red);
+    r.draw(1.0); expect(at(r.out, 50, 50)).toEqual([128, 157, 30, 255]); // green and red half and half: the sprite still shows
     r.draw(1.2); expect(at(r.out, 50, 50)).toEqual([0, 255, 0, 255]);
   });
   test("dust: sprite, then nothing", () => {

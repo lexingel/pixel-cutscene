@@ -15,7 +15,7 @@ import { decodeAudio } from "../export/audioMix";
 import { loadTracks, useTrack } from "./music";
 import { renderDrawer, droppedItem, knownItem, isItemDrag, type DrawerItem, type DropAt } from "./drawer";
 import { addLibraryFx, loadFx, rebakeFx } from "../core/fxLibrary";
-import { aimAngle, aimHandle, camNow, dragTarget, ghostAt, hitTest, moveBy, nudgeTarget, walks, type Target } from "./stageEdit";
+import { aimAngle, aimHandle, camNow, dragTarget, ghostAt, groundAt, hitTest, moveBy, nudgeTarget, onAimHandle, snapGround, walks, type Target } from "./stageEdit";
 import { readyChars } from "../core/kit";
 import { renderApprovals } from "./approvals";
 import { addMove, changeMove } from "./addMove";
@@ -316,7 +316,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     if (!knownItem(p.kit, it)) return void toast("That item is not in this project.", "error");
     const when = at.t !== undefined ? snap(at.t) : snap(t);
     if (it.kind === "char") {
-      const r = addEntry(tl(), "actors", { char: it.char, x: at.x ?? Math.round(W / 2), y: at.y ?? Math.round(H * 0.8), actions: [], ...(when > 0 ? { appear: when } : {}) }, "actor");
+      const r = addEntry(tl(), "actors", { char: it.char, x: at.x ?? Math.round(W / 2), y: snapGround(at.y ?? Math.round(H * 0.8), groundAt(tl(), when)), actions: [], ...(when > 0 ? { appear: when } : {}) }, "actor");
       return commit(r, r.id);
     }
     if (it.kind === "fx") {
@@ -365,6 +365,8 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   }
   canvas.ondragover = (e) => isItemDrag(e) && e.preventDefault();
   // pointer -> frame pixels before any zoom (not rounded); the drop and the stage editing share it
+  // canvas px per screen px (the preview is shown scaled, and zoomed by view.P)
+  const perScreenPx = (v = view) => W / (canvas.getBoundingClientRect().width || W) / (v?.P ?? 1);
   const canvasPt = (e: { clientX: number; clientY: number }, v = view) => {
     const r = canvas.getBoundingClientRect();
     const c = { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height };
@@ -402,6 +404,12 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const T = tl();
     const cam = camNow(T, t);
     const found = selected ? find(T, selected) : null;
+    const ground = groundAt(T, t);
+    if (cam && ground !== undefined && !playing) {
+      // the ground guide: where feet stand on this background
+      o.fillStyle = "rgba(120, 220, 255, 0.7)";
+      for (let x = 0; x < W; x += 6) o.fillRect(x, ground - cam.y, 3, 1 / (view?.P ?? 1));
+    }
     if (!cam || !found || playing) return;
     o.fillStyle = o.strokeStyle = "#f5b94a";
     o.lineWidth = 1 / (view?.P ?? 1);
@@ -419,7 +427,8 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const f = selectedFx();
     if (f) {
       const h = aimHandle(f, cam, aimLive?.id === f.id ? aimLive.deg : f.angle ?? 0);
-      o.fillRect(h.x - 2, h.y - 2, 4, 4);
+      const r = Math.max(2, 4 * perScreenPx()); // about 8 screen px across, whatever the preview size
+      o.fillRect(h.x - r, h.y - r, 2 * r, 2 * r);
     }
   }
 
@@ -436,7 +445,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     let target: Target | null = null;
     let aim = false;
     const hd = f ? aimHandle(f, cam, f.angle ?? 0) : null;
-    if (f && hd && Math.abs(c.x - hd.x) <= 4 && Math.abs(c.y - hd.y) <= 4) aim = true;
+    if (f && hd && onAimHandle(c, hd, perScreenPx(v0))) aim = true;
     else {
       const sel = selected ? find(T0, selected) : null;
       const actor = sel?.kind === "actor" ? (sel.e as Actor) : sel?.kind === "action" ? (sel.actor as Actor) : null;
@@ -458,7 +467,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     canvas.onpointermove = (m) => {
       const q = canvasPt(m, v0);
       if (aim) aimLive = { id: f!.id, deg: aimAngle(f!, cam, q.x, q.y) };
-      else p.tl = moveBy(T0, target!, q.x - c.x, q.y - c.y).tl; // live only: no history, no save
+      else p.tl = moveBy(T0, target!, q.x - c.x, q.y - c.y, groundAt(T0, t)).tl; // live only: no history, no save
       paint();
     };
     canvas.onpointercancel = () => {
@@ -485,7 +494,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
           .catch((err: Error) => void toast(`Could not aim that: ${err.message}`, "error"));
         return;
       }
-      const r = moveBy(T0, target!, q.x - c.x, q.y - c.y);
+      const r = moveBy(T0, target!, q.x - c.x, q.y - c.y, groundAt(T0, t));
       if (r.error) return void (toast(r.error, "error"), draw());
       if (JSON.stringify(r.tl) === JSON.stringify(T0)) return paint(); // a click: it only selected
       commit(r);

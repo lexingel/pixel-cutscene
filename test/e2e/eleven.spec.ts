@@ -69,7 +69,7 @@ test("elevenlabs: pick a voice, generate a line and a sound, approve", async ({ 
 
   await vo.getByRole("button", { name: "Generate" }).click();
   const dialog = page.locator("dialog[open]");
-  await expect(dialog).toContainText("ElevenLabs: Generate voice line vo_close");
+  await expect(dialog).toContainText("ElevenLabs: Generate voice line vo close");
   await expect(dialog).toContainText("11 characters");
   await dialog.getByRole("button", { name: "Run it" }).click();
   const fresh = needs.locator("li", { hasText: "vo_close" });

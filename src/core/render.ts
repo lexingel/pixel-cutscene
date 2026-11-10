@@ -44,10 +44,10 @@ export function watermark(out: Img): void {
   });
 }
 
-/** Every visible pixel recoloured, alpha kept. */
-function tint(img: Img, [r, g, b]: number[]): Img {
+/** Every visible pixel mixed half and half with a colour, alpha kept: the sprite still shows through. */
+function tint(img: Img, c: number[]): Img {
   const px = new Uint8ClampedArray(img.px);
-  for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 0) { px[i] = r; px[i + 1] = g; px[i + 2] = b; }
+  for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 0) for (let k = 0; k < 3; k++) px[i + k] = Math.round((px[i + k] + c[k]) / 2);
   return { w: img.w, h: img.h, px };
 }
 

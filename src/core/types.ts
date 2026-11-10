@@ -15,7 +15,8 @@ interface ShotBase {
 }
 /** Zoom eased from `from` to `to` across the shot, centred on (x, y) in frame pixels as far as the frame allows. */
 export interface Zoom { from: number; to: number; x: number; y: number; actor?: string } // actor: follow them instead of (x, y)
-export interface WideShot extends ShotBase { type: "wide"; camera: CamKey[]; bg_scale: number; zoom?: Zoom }
+// ground: the y (scene px) where feet stand on this shot's background; an editing guide, actors snap to it
+export interface WideShot extends ShotBase { type: "wide"; camera: CamKey[]; bg_scale: number; zoom?: Zoom; ground?: number }
 export interface CloseupShot extends ShotBase { type: "closeup"; face: string; expr: string }
 export type Shot = WideShot | CloseupShot;
 

@@ -135,7 +135,8 @@ export const MOTION: Record<string, string> = {
   run: "running in place, a full run cycle",
   hurt: "flinches back from a hit, then recovers",
   attack: "a weapon attack: wind-up, strike, recover",
-  breathe: "rears its head back, opens its jaws wide and breathes a long stream of fire forward",
+  // no fire: the flame is an effect placed at the mouth, a painted one never lines up with it
+  breathe: "rears its head back, then thrusts it forward and holds its jaws wide open, roaring; no fire, no flames, no smoke",
   death: "falls to the ground and lies still",
 };
 
@@ -170,8 +171,8 @@ export function bgSize(w: number, h: number): { width: number; height: number } 
   return { width: f(w), height: f(h) };
 }
 
-// a backdrop is a stage: characters are added by the scene
-const EMPTY = ", empty scene, no characters or creatures";
+// a backdrop is a stage: characters are added by the scene, and they stand on its ground
+const EMPTY = ", seen from the side like a platformer level: sky above, a horizon, flat ground along the bottom; empty scene, no characters, creatures, text or UI";
 
 export async function genBackground(key: string, description: string, w: number, h: number, ticket: PaidTicket, io: Io = browserIo): Promise<Img> {
   const r = await post(key, "/create-image-pixen", { description: description + EMPTY, image_size: bgSize(w, h), view: "side", no_background: false, seed: seed() }, ticket);
@@ -216,8 +217,12 @@ const guard = (piece: { approved: boolean } | undefined, what: string) => {
   if (piece?.approved) throw new Error(`${what} is already approved. Nothing was replaced.`);
 };
 
-export async function genAnimInto(p: Project, key: string, char: string, anim: string, description: string, ticket: PaidTicket, io: Io = browserIo, motion?: string): Promise<void> {
-  const at = () => p.kit.chars[char]?.anims[anim];
+/** `replace`: the user asked to redo this animation, so an approved one may be replaced too. */
+export async function genAnimInto(
+  p: Project, key: string, char: string, anim: string, description: string, ticket: PaidTicket, io: Io = browserIo, motion?: string,
+  opts: { replace?: boolean } = {},
+): Promise<void> {
+  const at = () => (opts.replace ? undefined : p.kit.chars[char]?.anims[anim]);
   guard(at(), `${char} ${anim}`);
   const ref = await refOf(p, char, io);
   if (!ref) throw new Error(`${char} has no reference image yet`);

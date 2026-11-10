@@ -4,7 +4,7 @@ import { KNOWN_ANIMS, checkSprite, downscale, guessAnims } from "../core/spriteI
 import { assignFrame, baseName as base, charDir, dropChar, freePath, pendingChars, unassigned } from "../core/cast";
 import { confirmDialog, toast } from "./dialogs";
 import { refPath } from "../gen/pixellab";
-import { NO_KEY, pixellabKey, renderGenChar } from "./pixellab";
+import { NO_KEY, generate, genPlan, pixellabKey, renderGenChar } from "./pixellab";
 
 type Picked = { rel: string; file: File }; // rel = path inside the character folder
 
@@ -17,6 +17,19 @@ export async function decode(b: Blob): Promise<Img> {
   g.drawImage(bmp, 0, 0);
   bmp.close();
   return { w: c.width, h: c.height, px: g.getImageData(0, 0, c.width, c.height).data };
+}
+
+/** An <img> that plays these frame URLs at 12 fps, looping; it stops by itself once it leaves the page. */
+export function playing(srcs: string[], className = "px frame"): HTMLImageElement {
+  const el = Object.assign(document.createElement("img"), { src: srcs[0] ?? "", alt: "", className });
+  if (srcs.length > 1) {
+    let i = 0;
+    const id = setInterval(() => {
+      if (!el.isConnected && i > 0) return clearInterval(id);
+      el.src = srcs[++i % srcs.length];
+    }, 1000 / 12);
+  }
+  return el;
 }
 
 export function encode(img: Img): Promise<Blob> {
@@ -247,7 +260,8 @@ export function renderCast(root: HTMLElement, p: Project, changed: () => void, g
     const c = p.kit.chars[name];
     const loose = unassigned(p, name);
     main.innerHTML = `<header class="row between"><div><h1></h1><p class="hint"></p></div>
-      <div class="row"><button class="btn" type="button" data-act="remove">Remove</button>
+      <div class="row"><label class="check small"><input type="checkbox" data-act="scale" /> Double size (2×)</label>
+      <button class="btn" type="button" data-act="remove">Remove</button>
       <button class="btn primary" type="button" data-act="next">Next: Tweak</button></div></header><div class="anims"></div>`;
     main.querySelector("h1")!.textContent = name;
     main.querySelector(".hint")!.textContent = loose.length
@@ -256,6 +270,15 @@ export function renderCast(root: HTMLElement, p: Project, changed: () => void, g
         ? `Every character needs idle frames: drop a folder with idle_0.png and up, or assign frames to idle.`
         : `Add another character, or go to ③ Tweak when your cast is complete.`;
     main.querySelector<HTMLButtonElement>("[data-act=next]")!.onclick = () => go(3);
+    // big creatures: drawn at twice their pixel size (Scale2x), so a bg_scale 2 scene does not leave them tiny
+    const two = main.querySelector<HTMLInputElement>("[data-act=scale]")!;
+    two.checked = c.scale === 2;
+    two.setAttribute("aria-label", `Draw ${name} at double size`);
+    two.onchange = () => {
+      if (two.checked) c.scale = 2;
+      else delete c.scale;
+      changed();
+    };
     main.querySelector<HTMLButtonElement>("[data-act=remove]")!.onclick = async () => {
       if (!(await confirmDialog(`Remove ${name}?`, `${name} and its frames leave this project. Your files on disk stay as they are.`, "Remove"))) return;
       dropChar(p, name);
@@ -270,7 +293,21 @@ export function renderCast(root: HTMLElement, p: Project, changed: () => void, g
       row.innerHTML = `<div class="anim-label"><strong></strong><span class="small"></span></div><div class="strip"></div>`;
       row.querySelector("strong")!.textContent = anim;
       row.querySelector(".small")!.textContent = `${a.frames.length} frame${a.frames.length === 1 ? "" : "s"}`;
-      row.querySelector(".strip")!.append(...a.frames.map((f) => Object.assign(document.createElement("img"), { src: url(f), alt: `${anim} ${base(f)}`, className: "px frame", title: base(f) })));
+      const srcs = a.frames.filter((f) => p.files.has(f)).map(url);
+      if (srcs.length > 1) row.querySelector(".anim-label")!.append(playing(srcs));
+      row.querySelector(".strip")!.append(...a.frames.filter((f) => p.files.has(f)).map((f, i) => Object.assign(document.createElement("img"), { src: srcs[i] ?? url(f), alt: `${anim} ${base(f)}`, className: "px frame", title: base(f) })));
+      // a generated animation can be made again, approved or not (the old frames go once the new ones land)
+      const plan = a.source === "pixellab" ? genPlan(p, { kind: "anim", char: name, anim }) : null;
+      if (plan && !plan.why) {
+        const redo = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: "Redo" });
+        redo.setAttribute("aria-label", `Redo ${name} ${anim}`);
+        redo.onclick = async () => {
+          redo.disabled = true;
+          if (await generate(p, { kind: "anim", char: name, anim }, () => changed(), { replace: true })) draw();
+          else redo.disabled = false;
+        };
+        row.querySelector(".anim-label")!.append(redo);
+      }
       box.append(row);
     }
     if (loose.length) {

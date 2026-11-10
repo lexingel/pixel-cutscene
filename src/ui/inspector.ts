@@ -10,6 +10,7 @@ import { find, moveEntry, resizeEntry, setCamera, setField, setMove, snap, type 
 import { freePath } from "../core/cast";
 import { decode } from "./cast";
 import { toast } from "./dialogs";
+import { generateShotBg, NO_KEY, pixellabKey } from "./pixellab";
 
 type Kind = "num" | "text" | "bool" | "select";
 type Field = { key: string; label: string; kind: Kind; options?: string[]; optional?: boolean; text?: (o: string) => string };
@@ -29,7 +30,7 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
     case "shot":
       return [
         { key: "bg", label: "background", kind: "select", options: ["", ...assetIds(kit, ["bg", "backdrop"])], optional: true },
-        ...(e.type === "wide" ? [NUM("bg_scale", "bg scale")] : [{ key: "face", label: "face", kind: "text" as Kind }, { key: "expr", label: "expression", kind: "text" as Kind }]),
+        ...(e.type === "wide" ? [NUM("bg_scale", "bg scale"), NUM("ground", "ground line y", true)] : [{ key: "face", label: "face", kind: "text" as Kind }, { key: "expr", label: "expression", kind: "text" as Kind }]),
         NUM("fade_in", "fade in (s)", true),
         NUM("fade_out", "fade out (s)", true),
         NUM("flash", "white flash (s)", true),
@@ -167,6 +168,7 @@ export function renderInspector(
     box.append(b);
   }
   if (at.kind === "shot" && ctx.project) box.append(bgUpload(ctx.project, tl, id, apply, ctx.kitChanged));
+  if (at.kind === "shot" && e.type === "wide" && ctx.project) box.append(bgGenerate(ctx.project, id, apply, ctx.kitChanged));
   if (at.kind === "shot" && e.type === "wide") box.append(cameraKeys(tl, id, e.camera as CamKey[], ctx.now, apply));
   if (at.kind === "root") {
     const todo = nextSteps(tl, ctx.kit);
@@ -239,7 +241,7 @@ function voicePicker(kit: Kit, char: string, changed?: () => void): HTMLElement 
 // What an unfinished scene still lacks, in the words of the buttons that add it.
 function nextSteps(tl: Timeline, kit: Kit): string[] {
   const out: string[] = [];
-  if (!tl.shots.some((s) => s.bg)) out.push("Click the shot bar in the Shots row, then Upload background.");
+  if (!tl.shots.some((s) => s.bg)) out.push("Click the shot bar in the Shots row, then Upload background or Generate background.");
   if (!tl.actors.length) out.push(readyChars(kit).length ? "Drag a character in from Cast on the left." : "Add a character in ② Cast, then drag it in from the left.");
   else if (!tl.actors.some((a) => a.actions.length)) out.push("Click the + beside an actor's name to give it something to do.");
   if (!tl.audio.length) out.push("Drag a track in from Sound and Music on the left (optional).");
@@ -275,6 +277,24 @@ function bgUpload(p: Project, tl: Timeline, id: string, apply: (r: EditResult) =
   };
   lab.append(inp);
   return lab;
+}
+
+// A PixelLab background for this wide shot, from a short description typed in the confirm.
+function bgGenerate(p: Project, id: string, apply: (r: EditResult) => void, kitChanged?: () => void): HTMLElement {
+  const b = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: "Generate background" });
+  b.disabled = !pixellabKey();
+  b.title = pixellabKey() ? "Describe the place; PixelLab paints it empty, seen from the side" : NO_KEY;
+  b.onclick = async () => {
+    b.disabled = true;
+    await generateShotBg(p, id, (bg) => {
+      let r = setField(p.tl!, id, "bg", bg);
+      if (!r.error) r = setField(r.tl, id, "bg_scale", 2);
+      apply(r);
+      kitChanged?.();
+    });
+    b.disabled = false;
+  };
+  return b;
 }
 
 function cameraKeys(tl: Timeline, id: string, keys: CamKey[], now: () => number, apply: (r: EditResult) => void): HTMLElement {

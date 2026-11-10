@@ -236,7 +236,11 @@ test("poll_blip_after_paid_post_keeps_waiting", async () => {
 test("background_prompt_says_empty", async () => {
   const calls = serve("create-image-pixen");
   await genBackground(KEY, "a cave", 480, 270, await tk(), testIo);
-  expect(body(calls[0]).description).toMatch(/a cave, empty scene, no characters or creatures$/);
+  const d = body(calls[0]).description;
+  expect(d.startsWith("a cave")).toBe(true);
+  expect(d).toMatch(/seen from the side/);
+  expect(d).toMatch(/sky.*horizon.*ground along the bottom/);
+  expect(d).toMatch(/no characters, creatures, text or UI/);
 });
 
 test("gargantuan_ref_saved_with_scale_2", async () => {
@@ -248,11 +252,24 @@ test("gargantuan_ref_saved_with_scale_2", async () => {
 });
 
 test("breathe_motion_and_an_edited_prompt_reach_the_request", async () => {
-  expect(MOTION.breathe).toBe("rears its head back, opens its jaws wide and breathes a long stream of fire forward");
+  expect(MOTION.breathe).toMatch(/jaws wide open/);
+  expect(MOTION.breathe).toMatch(/no fire/); // the flame is a separate effect placed at the mouth
   const calls = serve("job-accepted", "job-anim-completed");
   await genAnim(KEY, figure(32, 32, 11, 14), "breathe", "a dragon", await tk(), testIo);
   expect(body(calls[0]).description).toBe(MOTION.breathe);
   const c2 = serve("job-accepted", "job-anim-completed");
   await genAnim(KEY, figure(32, 32, 11, 14), "breathe", "a dragon", await tk(), testIo, "spits acid");
   expect(body(c2[0]).description).toBe("spits acid");
+});
+
+test("redo_replaces_an_approved_animation_only_when_asked", async () => {
+  const p = await withRef();
+  p.files.set("old_0.png", new Blob([]));
+  p.kit.chars.hero.anims.walk = { approved: true, source: "pixellab", frames: ["old_0.png"] };
+  serve("job-accepted", "job-anim-completed");
+  await expect(genAnimInto(p, KEY, "hero", "walk", "a knight", await tk(), testIo)).rejects.toThrow(/already approved/);
+  serve("job-accepted", "job-anim-completed");
+  await genAnimInto(p, KEY, "hero", "walk", "a knight", await tk(), testIo, undefined, { replace: true });
+  expect(p.kit.chars.hero.anims.walk.approved).toBe(false);
+  expect(p.files.has("old_0.png")).toBe(false);
 });

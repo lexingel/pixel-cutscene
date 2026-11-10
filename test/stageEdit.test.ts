@@ -51,3 +51,30 @@ test("aim_round_trip_flipped_and_not", () => {
     expect(aimAngle(f, cam0, h.x, h.y), `${flip} ${deg}`).toBe(deg);
   }
 });
+
+import { onAimHandle, snapGround } from "../src/ui/stageEdit";
+test("aim_handle_is_easy_to_grab_on_a_small_preview", () => {
+  const hd = { x: 100, y: 50 };
+  expect(onAimHandle({ x: 107, y: 50 }, hd, 1)).toBe(true); // full size: 8 canvas px
+  expect(onAimHandle({ x: 109, y: 50 }, hd, 1)).toBe(false);
+  expect(onAimHandle({ x: 104, y: 50 }, hd, 0.25)).toBe(true); // zoomed in: never under 4 canvas px
+  expect(onAimHandle({ x: 115, y: 50 }, hd, 2.6)).toBe(true); // 960 px canvas shown 367 px wide: 8 screen px
+  expect(onAimHandle({ x: 125, y: 50 }, hd, 2.6)).toBe(false);
+});
+test("ground_snaps_feet_that_land_near_it", () => {
+  expect(snapGround(455, 463)).toBe(463);
+  expect(snapGround(470, 463)).toBe(463);
+  expect(snapGround(440, 463)).toBe(440);
+  expect(snapGround(440, undefined)).toBe(440);
+});
+import { groundAt } from "../src/ui/stageEdit";
+test("drags_of_feet_snap_to_the_ground_effects_do_not", () => {
+  const t0 = tl();
+  (t0.shots[0] as { ground?: number }).ground = 75;
+  t0.fx.push({ id: "f1", t: 0, fx: "x", x: 10, y: 70 });
+  expect(groundAt(t0, 1)).toBe(75);
+  expect(moveBy(t0, { id: "front", key: "pos" }, 0, 3, 75).tl.actors[1].y).toBe(75);
+  expect(moveBy(t0, { id: "a1", key: "to" }, 0, -2, 75).tl.actors[1].actions[0].to).toEqual([100, 75]);
+  expect(moveBy(t0, { id: "f1", key: "pos" }, 0, 3, 75).tl.fx[0].y).toBe(73);
+  expect(groundAt(tl(), 1)).toBeUndefined();
+});

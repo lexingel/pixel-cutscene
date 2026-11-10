@@ -5,6 +5,7 @@ import { getKeys } from "../ai/keys";
 import type { Project } from "../core/project";
 import { listVoices, sfxCost, sfxInto, speakCost, speakInto } from "../gen/eleven";
 import { toast } from "./dialogs";
+import { isRunning, track } from "./inflight";
 import { find } from "./timelineEditor";
 
 export const NO_KEY = "Add an ElevenLabs key in Settings to generate.";
@@ -14,11 +15,11 @@ export const SFX_SECONDS = 2; // ponytail: fixed length; a per-sound length fiel
 async function paid(action: string, cost: string, run: (key: string, t: PaidTicket) => Promise<void>): Promise<boolean> {
   const key = elevenKey();
   if (!key) return toast(NO_KEY, "error"), false;
+  if (isRunning(action)) return toast(`${action} is already running. Wait for it to finish.`), false;
   const t = await confirmPaid("elevenlabs", action, cost, 1);
   if (!t) return false;
   try {
-    await run(key, t);
-    return true;
+    return await track(action, () => run(key, t));
   } catch (e) {
     toast((e as Error).message, "error");
     return false;
@@ -47,8 +48,8 @@ export function generateAudio(p: Project, id: string, usedBy: string, kind: stri
   const plan = audioPlan(p, usedBy, kind);
   if (plan.why) return toast(plan.why, "error"), Promise.resolve(false);
   const ok = plan.line
-    ? paid(`Generate voice line ${id}`, speakCost(plan.line), (k, t) => speakInto(p, k, id, plan.line!, plan.voice!, t))
-    : paid(`Generate sound ${id}`, sfxCost(SFX_SECONDS), (k, t) => sfxInto(p, k, id, plan.prompt!, SFX_SECONDS, t));
+    ? paid(`Generate voice line ${id.replace(/[_-]+/g, " ")}`, speakCost(plan.line), (k, t) => speakInto(p, k, id, plan.line!, plan.voice!, t))
+    : paid(`Generate sound ${id.replace(/[_-]+/g, " ")}`, sfxCost(SFX_SECONDS), (k, t) => sfxInto(p, k, id, plan.prompt!, SFX_SECONDS, t));
   return ok.then((r) => (r && (toast("Generated. Listen, then Approve or Redo."), done()), r));
 }
 

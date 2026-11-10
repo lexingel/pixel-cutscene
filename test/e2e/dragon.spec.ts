@@ -109,7 +109,8 @@ test("three heroes, a dragon, fire, dust", async ({ page }) => {
   const flame = page.locator(".clip.fx[title=\"fire breath\"]");
   await expect(flame).toBeVisible({ timeout: 60_000 }); // the first bake loads the effect's chunk
   const flameW = (await flame.boundingBox())!.width, laneW = (await page.locator(".lane").first().boundingBox())!.width;
-  expect(flameW).toBeLessThan((laneW * 0.5) / DURATION); // the last third of the breath, not the rest of the scene
+  expect(flameW).toBeLessThan((laneW * 1.2) / DURATION); // a one-second breath, not the rest of the scene
+  expect(flameW).toBeGreaterThan((laneW * 0.8) / DURATION);
   await flame.click();
 
   // aim it at the heroes: drag the handle (24 px right of the mouth) to a point a little below the mouth; the re-bake takes seconds

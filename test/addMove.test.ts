@@ -68,18 +68,18 @@ import { addLibraryFx } from "../src/core/fxLibrary";
 import { changeMove } from "../src/ui/addMove";
 
 describe("addMove fixes", () => {
-  test("flame_runs_the_last_third_of_the_clip_only", async () => {
+  test("flame_starts_in_the_last_third_and_burns_a_second", async () => {
     const { p, tl } = setup();
     const r = await addMove(p, tl, "hero1", "anim:breathe", 1, img, encode);
     const f = r.tl.fx[0] as { t: number; dur?: number };
-    expect(f.dur).toBeCloseTo(0.5 / 3, 1);
-    expect(f.t + f.dur!).toBeCloseTo(1 + 0.5, 1); // ends with the move
+    expect(f.t).toBeCloseTo(1 + (2 / 3) * 0.5, 1);
+    expect(f.dur).toBeCloseTo(1, 2); // the last frame (jaws open) holds while it burns
   });
-  test("flame_of_the_default_clip_is_a_quarter_second", async () => {
+  test("flame_of_the_default_clip_burns_a_second_too", async () => {
     const { p, tl } = setup();
     delete p.kit.chars.hero.anims.breathe; // not made yet: 9 frames at 12 fps = 0.75 s
     const r = await addMove(p, tl, "hero1", "anim:breathe", 1, img, encode);
-    expect((r.tl.fx[0] as { dur?: number }).dur).toBeCloseTo(0.25, 1);
+    expect((r.tl.fx[0] as { dur?: number }).dur).toBeCloseTo(1, 2);
   });
   test("changing_an_existing_move_to_breathe_adds_the_flame_in_one_edit", async () => {
     const { p, tl } = setup();
@@ -112,5 +112,50 @@ describe("addMove fixes", () => {
     expect(p.kit.assets[id]).toMatchObject({ source: "pixelfx", ref: "fire/fire-breath" });
     expect(p.kit.assets["fire-breath"].source).toBe("user");
     expect(await addLibraryFx(p, "fire/fire-breath", undefined, encode)).toBe(id); // the library one is reused
+  });
+});
+
+import { findMouth, replaceFlames } from "../src/ui/addMove";
+
+// 20x20 head facing right: upper jaw rows 2-4 to x 19, lower jaw rows 8-10 to x 16, joined at x < 10
+function jaws(): Img {
+  const px = new Uint8ClampedArray(20 * 20 * 4);
+  const on = (x: number, y: number) => px.set([200, 40, 40, 255], (y * 20 + x) * 4);
+  for (let y = 2; y <= 4; y++) for (let x = 0; x <= 19; x++) on(x, y);
+  for (let y = 8; y <= 10; y++) for (let x = 0; x <= 16; x++) on(x, y);
+  for (let y = 5; y <= 19; y++) for (let x = 0; x <= 9; x++) on(x, y);
+  return { w: 20, h: 20, px };
+}
+
+describe("mouth", () => {
+  test("mouth_is_the_gap_between_the_jaws_not_the_snout_tip", () => {
+    expect(findMouth(jaws())).toEqual({ x: 17, y: 6 }); // right edge of the gap's front column, gap rows 5-7
+  });
+  test("a_closed_mouth_falls_back_to_the_snout_tip", () => {
+    const im = jaws();
+    for (let y = 5; y <= 7; y++) for (let x = 10; x <= 16; x++) im.px.set([200, 40, 40, 255], (y * 20 + x) * 4);
+    expect(findMouth(im)).toEqual({ x: 20, y: 2 });
+  });
+  test("an_empty_sprite_has_no_mouth", () => {
+    expect(findMouth(stub)).toBeNull();
+  });
+  test("breathe_flame_comes_out_of_the_open_jaws", async () => {
+    const { p, tl } = setup();
+    const r = await addMove(p, tl, "hero1", "anim:breathe", 1, () => jaws(), encode);
+    // drawX 90, drawY 130 -> (90 + 17, 130 + 6)
+    expect(r.tl.fx[0]).toEqual(expect.objectContaining({ x: 107, y: 136 }));
+    const fl = await addMove(p, setup({ flip: true }).tl, "hero1", "anim:breathe", 1, () => jaws(), encode);
+    expect(fl.tl.fx[0]).toEqual(expect.objectContaining({ x: 93, y: 136, flip: true }));
+  });
+  test("flames_move_to_the_new_mouth_after_breathe_is_remade", async () => {
+    const { p, tl } = setup();
+    const r = await addMove(p, tl, "hero1", "anim:breathe", 1, img, encode); // edge rule: (105, 136)
+    const aimed = { ...r.tl, fx: r.tl.fx.map((f) => ({ ...f, angle: 30 })) };
+    const moved = await replaceFlames(p, aimed, "hero", () => jaws());
+    expect(moved.fx[0]).toEqual(expect.objectContaining({ x: 107, y: 136, angle: 30 }));
+    expect(moved.fx[0].t).toBeCloseTo(1 + (2 / 3) * 0.5, 1);
+    expect(r.tl.fx[0].x).toBe(105); // the input is untouched
+    const other = await replaceFlames(p, aimed, "nobody", () => jaws());
+    expect(other).toBe(aimed);
   });
 });

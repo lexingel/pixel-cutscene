@@ -138,3 +138,18 @@ test("callFree_elevenlabs_voices_only", async () => {
   await callFree("elevenlabs", "https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": "test-key" } });
   expect(f).toHaveBeenCalledTimes(1);
 });
+
+test("error_body_detail_reaches_the_message", async () => {
+  stub(reply(400, { detail: { status: "invalid_api_key", message: "API key ID used as API key" } }));
+  const e = await callApi("elevenlabs", "https://api.elevenlabs.io/v1/sound-generation", {}, await tk("elevenlabs")).catch((x) => x);
+  expect(e.message).toBe("ElevenLabs returned an error (400): API key ID used as API key");
+  stub(reply(422, { detail: "image_size too large" }));
+  const e2 = await callApi("pixellab", "https://api.pixellab.ai/v2/x", {}, await tk("pixellab")).catch((x) => x);
+  expect(e2.message).toBe("PixelLab returned an error (422): image_size too large");
+  stub(new Response("<html>oops</html>", { status: 500 }));
+  const e3 = await callApi("pixellab", "https://api.pixellab.ai/v2/x", {}, await tk("pixellab")).catch((x) => x);
+  expect(e3.message).toBe("PixelLab returned an error (500)");
+  stub(reply(400, { error: { message: "x".repeat(400) } }));
+  const e4 = await callApi("anthropic", "https://api.anthropic.com/v1/messages", {}, await tk("anthropic")).catch((x) => x);
+  expect(e4.message.length).toBeLessThan(260);
+});

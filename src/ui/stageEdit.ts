@@ -70,17 +70,24 @@ export function nudgeTarget(tl: Timeline, id: string | null, t: number): Target 
   return at.kind === "action" && isWalk(at.e.do) && at.e.to ? { id, key: "to" } : null;
 }
 
-/** Moves the target by whole pixels (dx, dy rounded). */
-export function moveBy(tl: Timeline, target: Target, dx: number, dy: number): EditResult {
+/** The ground line of the wide shot showing at t, if it has one. */
+export function groundAt(tl: Timeline, t: number): number | undefined {
+  const s = tl.shots.length ? shotAt(tl, t) : null;
+  return s?.type === "wide" ? s.ground : undefined;
+}
+
+/** Moves the target by whole pixels (dx, dy rounded). Feet (an actor, a walk's end) snap to `ground` when near it. */
+export function moveBy(tl: Timeline, target: Target, dx: number, dy: number, ground?: number): EditResult {
   const at = find(tl, target.id);
   if (!at) return { tl, error: `Nothing called ${target.id}.` };
   const ax = Math.round(dx), ay = Math.round(dy);
   if (target.key === "to") {
     const to = at.e.to as [number, number] | undefined;
-    return to ? setField(tl, target.id, "to", [to[0] + ax, to[1] + ay]) : { tl, error: `${target.id} has no destination.` };
+    return to ? setField(tl, target.id, "to", [to[0] + ax, snapGround(to[1] + ay, ground)]) : { tl, error: `${target.id} has no destination.` };
   }
+  const y = (at.e.y as number) + ay;
   const r = setField(tl, target.id, "x", (at.e.x as number) + ax);
-  return r.error ? r : setField(r.tl, target.id, "y", (at.e.y as number) + ay);
+  return r.error ? r : setField(r.tl, target.id, "y", at.kind === "actor" ? snapGround(y, ground) : y);
 }
 
 export type Walk = { id: string; from: [number, number]; to: [number, number]; box: Box };
@@ -120,4 +127,16 @@ export function aimHandle(f: FxEntry, cam: { x: number; y: number }, deg: number
 export function aimAngle(f: FxEntry, cam: { x: number; y: number }, x: number, y: number): number {
   const deg = (Math.atan2(y - (round(f.y) - cam.y), x - (round(f.x) - cam.x)) * 180) / Math.PI;
   return wrap(drawn(f, Math.round(deg / 5) * 5));
+}
+
+/** The pointer (canvas px) is on the aim handle: within 8 screen px (`k` canvas px per screen px), at least 4 canvas px. */
+export function onAimHandle(c: { x: number; y: number }, hd: { x: number; y: number }, k: number): boolean {
+  const r = Math.max(4, 8 * k);
+  return Math.abs(c.x - hd.x) <= r && Math.abs(c.y - hd.y) <= r;
+}
+
+export const GROUND_SNAP = 12;
+/** Feet that land within GROUND_SNAP px of the shot's ground line stand on it. */
+export function snapGround(y: number, ground: number | undefined): number {
+  return typeof ground === "number" && Math.abs(y - ground) <= GROUND_SNAP ? ground : y;
 }

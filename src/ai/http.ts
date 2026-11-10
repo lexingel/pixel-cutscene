@@ -44,8 +44,20 @@ async function send(provider: Provider, url: string, init: RequestInit): Promise
     res.status === 401 ? `${n} rejected the key`
     : res.status === 402 ? `${n} says the account is out of credits`
     : res.status === 429 ? `${n} is rate-limiting, try again in a minute`
-    : `${n} returned an error (${res.status})`;
+    : `${n} returned an error (${res.status})${await reason(res)}`;
   throw new ProviderError(provider, res.status, msg);
+}
+
+// The provider's own words for an error ({detail}, {detail: {message}}, {error: {message}}, {message}), capped.
+async function reason(res: Response): Promise<string> {
+  try {
+    const j = await res.json();
+    const d = j?.detail ?? j?.error ?? j;
+    const m = typeof d === "string" ? d : typeof d?.message === "string" ? d.message : "";
+    return m ? `: ${m.slice(0, 200)}` : "";
+  } catch {
+    return "";
+  }
 }
 
 export async function callApi(provider: Provider, url: string, init: RequestInit, ticket: PaidTicket): Promise<Response> {

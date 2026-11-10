@@ -6,12 +6,13 @@ import { labelOf } from "../core/labels";
 import { moveLabel } from "../core/moves";
 import { ACTIONS } from "../core/timeline";
 import type { AudioKind, Timeline } from "../core/types";
-import { decode } from "./cast";
+import { decode, playing } from "./cast";
 import { toast } from "./dialogs";
 import { find, setMove, type EditResult } from "./timelineEditor";
 import { pickTrack } from "./music";
 import { audioPlan, elevenKey, generateAudio } from "./eleven";
-import { busy, generate, genPlan, pixellabKey, NO_KEY } from "./pixellab";
+import { busy, generate, genAction, genPlan, pixellabKey, words, NO_KEY } from "./pixellab";
+import { isRunning } from "./inflight";
 
 // moves the user can add before they exist: they land here to be generated
 const GENERATABLE = ["anim:attack", "anim:breathe"];
@@ -128,7 +129,7 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
     const li = document.createElement("li");
     li.tabIndex = -1; // the Tweak status links here
     li.innerHTML = `<div class="need-head"><strong></strong><span class="tag"></span></div><span class="small used"></span><div class="row wrap acts"></div>`;
-    li.querySelector("strong")!.textContent = r.what;
+    li.querySelector("strong")!.textContent = words(r.what);
     const tag = li.querySelector<HTMLElement>(".tag")!;
     tag.textContent = r.why === "missing" ? "missing" : "to approve";
     tag.classList.add(r.why);
@@ -140,8 +141,10 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
     if (r.why === "unapproved" && t) li.insertBefore(review(p, t, r.used_by, kitChanged, regen), acts);
 
     const plan = aud ? audioPlan(p, r.used_by, aud.asset) : t ? genPlan(p, t) : { label: "Generate", why: "Nothing to generate for this row" };
-    const gen = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: plan.label, disabled: !!plan.why });
-    gen.title = plan.why ?? `Generate ${r.what} with ${aud ? "ElevenLabs" : "PixelLab"}`;
+    // still running from before a re-render: stays off until it lands (the list re-renders then)
+    const running = !!t && !aud && isRunning(genAction(t));
+    const gen = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: running ? "Generating…" : plan.label, disabled: !!plan.why || running });
+    gen.title = plan.why ?? `Generate ${words(r.what)} with ${aud ? "ElevenLabs" : "PixelLab"}`;
     if (t && !plan.why) gen.onclick = regen;
     acts.append(gen);
     if (t) {
@@ -156,7 +159,7 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
         if (!files.length) return;
         try {
           await useOwnFiles(p, t, files);
-          toast(`${r.what} added from your files.`);
+          toast(`${words(r.what)} added from your files.`);
           kitChanged();
         } catch {
           toast(`Could not read ${files[0].name}. Use PNG images${isAudio(t) ? " or audio files" : ""}.`, "error");
@@ -187,16 +190,17 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
 // Preview + Approve for an unapproved piece already in the kit.
 function review(p: Project, t: Target, usedBy: string, kitChanged: () => void, regen: () => void): HTMLElement {
   const piece = t.kind === "anim" ? p.kit.chars[t.char]?.anims[t.anim] : t.kind === "face" ? p.kit.faces[t.face]?.[t.expr] : p.kit.assets[t.id];
-  const path = piece && ("frames" in piece ? piece.frames[0] : piece.path);
-  const blob = path ? p.files.get(path) : undefined;
-  let preview: HTMLElement = document.createElement("span");
-  if (blob) {
+  // an animation plays, so its motion can be judged before approving
+  const paths = piece ? ("frames" in piece ? piece.frames : [piece.path]) : [];
+  const srcs = paths.flatMap((f) => {
+    const blob = p.files.get(f);
+    if (!blob) return [];
     const src = URL.createObjectURL(blob);
     urls.push(src);
-    preview = isAudio(t)
-      ? Object.assign(document.createElement("audio"), { src, controls: true })
-      : Object.assign(document.createElement("img"), { src, alt: "", className: "px frame" });
-  }
+    return [src];
+  });
+  let preview: HTMLElement = document.createElement("span");
+  if (srcs.length) preview = isAudio(t) ? Object.assign(document.createElement("audio"), { src: srcs[0], controls: true }) : playing(srcs);
   const canRedo =
     piece?.source === "pixellab" ? !genPlan(p, t).why
     : piece?.source === "elevenlabs" && t.kind === "asset" ? !audioPlan(p, usedBy, t.asset).why
