@@ -17,15 +17,14 @@
 import { callApi, callFree } from "../ai/http";
 import type { PaidTicket } from "../ai/confirm";
 import { freePath } from "../core/cast";
-import type { Img, Kit } from "../core/kit";
+import type { Img, Kit, SizeName } from "../core/kit";
 import type { Project } from "../core/project";
 import { crop } from "../core/raster";
 import { checkSprite, downscale } from "../core/spriteImport";
 import { decode, encode } from "../ui/cast";
 
 const API = "https://api.pixellab.ai/v2";
-export const SIZES = [32, 48, 64, 96, 128] as const;
-export type Size = (typeof SIZES)[number];
+export const SIZES = [32, 48, 64, 96, 128, 192, 256] as const;
 // Short notes for the confirm dialog, from the costs above.
 export const COST = {
   character: "4 images, about 1 generation each (4 in all).",
@@ -117,32 +116,33 @@ export function pad4(img: Img, min = 32): Img {
   return crop(img, -Math.floor((w - img.w) / 2), img.h - h, w, h);
 }
 
-export async function genCharacter(key: string, description: string, size: Size, ticket: PaidTicket, io: Io = browserIo): Promise<Img[]> {
+export async function genCharacter(key: string, description: string, px: number, ticket: PaidTicket, io: Io = browserIo): Promise<Img[]> {
   const s0 = seed();
   const out: Img[] = [];
   // one after another: a ticket for fewer than 4 calls stops at the first call it cannot pay for
   for (let i = 0; i < 4; i++) {
     const r = await post(key, "/create-image-pixen", {
-      description, image_size: { width: size, height: size }, view: "side", direction: "east", no_background: true, seed: s0 + i,
+      description, image_size: { width: px, height: px }, view: "side", direction: "east", no_background: true, seed: s0 + i,
     }, ticket);
     out.push(...(await sprite(images(r), io)));
   }
   return out;
 }
 
-const MOTION: Record<string, string> = {
+export const MOTION: Record<string, string> = {
   idle: "idle breathing loop, standing in place",
   walk: "walking in place, a full walk cycle",
   run: "running in place, a full run cycle",
   hurt: "flinches back from a hit, then recovers",
   attack: "a weapon attack: wind-up, strike, recover",
+  breathe: "rears its head back, opens its jaws wide and breathes a long stream of fire forward",
   death: "falls to the ground and lies still",
 };
 
-export async function genAnim(key: string, ref: Img, anim: string, description: string, ticket: PaidTicket, io: Io = browserIo): Promise<Img[]> {
+export async function genAnim(key: string, ref: Img, anim: string, description: string, ticket: PaidTicket, io: Io = browserIo, motion?: string): Promise<Img[]> {
   const r = await job(key, "/animate-pixminimax", {
     first_frame: await toB64(pad4(ref), io),
-    description: MOTION[anim] ?? anim.replace(/_/g, " "),
+    description: motion ?? MOTION[anim] ?? anim.replace(/_/g, " "),
     frame_count: anim === "idle" ? 4 : 8,
     view: "side",
     direction: "east",
@@ -170,8 +170,11 @@ export function bgSize(w: number, h: number): { width: number; height: number } 
   return { width: f(w), height: f(h) };
 }
 
+// a backdrop is a stage: characters are added by the scene
+const EMPTY = ", empty scene, no characters or creatures";
+
 export async function genBackground(key: string, description: string, w: number, h: number, ticket: PaidTicket, io: Io = browserIo): Promise<Img> {
-  const r = await post(key, "/create-image-pixen", { description, image_size: bgSize(w, h), view: "side", no_background: false, seed: seed() }, ticket);
+  const r = await post(key, "/create-image-pixen", { description: description + EMPTY, image_size: bgSize(w, h), view: "side", no_background: false, seed: seed() }, ticket);
   return (await sprite(images(r).slice(0, 1), io))[0];
 }
 
@@ -191,11 +194,11 @@ export function approvePiece(kit: Kit, t: At): void {
 }
 
 // The picked candidate becomes the character's reference; the character has no animations until idle is made.
-export async function approveRef(p: Project, name: string, img: Img, io: Io = browserIo): Promise<void> {
+export async function approveRef(p: Project, name: string, img: Img, io: Io = browserIo, opts: { size?: SizeName; scale?: 2 } = {}): Promise<void> {
   if (p.kit.chars[name] || p.files.has(refPath(name))) throw new Error(`${name} is already in the cast. Pick another name.`);
   const blob = await io.encode(img);
   p.files.set(refPath(name), blob);
-  p.kit.chars[name] ??= { view: "side", anims: {} };
+  p.kit.chars[name] ??= { view: "side", anims: {}, ...(opts.size && { size: opts.size }), ...(opts.scale && { scale: opts.scale }) };
 }
 
 // The reference for a character's new animations and faces: its generated reference, else its idle frame 0.
@@ -213,12 +216,12 @@ const guard = (piece: { approved: boolean } | undefined, what: string) => {
   if (piece?.approved) throw new Error(`${what} is already approved. Nothing was replaced.`);
 };
 
-export async function genAnimInto(p: Project, key: string, char: string, anim: string, description: string, ticket: PaidTicket, io: Io = browserIo): Promise<void> {
+export async function genAnimInto(p: Project, key: string, char: string, anim: string, description: string, ticket: PaidTicket, io: Io = browserIo, motion?: string): Promise<void> {
   const at = () => p.kit.chars[char]?.anims[anim];
   guard(at(), `${char} ${anim}`);
   const ref = await refOf(p, char, io);
   if (!ref) throw new Error(`${char} has no reference image yet`);
-  const frames = await genAnim(key, ref.img, anim, description, ticket, io);
+  const frames = await genAnim(key, ref.img, anim, description, ticket, io, motion);
   const blobs = await Promise.all(frames.map(io.encode));
   guard(at(), `${char} ${anim}`);
   const c = (p.kit.chars[char] ??= { view: "side", anims: {} });

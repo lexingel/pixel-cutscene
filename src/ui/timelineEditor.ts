@@ -1,4 +1,6 @@
 import { validateTimeline } from "../core/timeline";
+import { pose } from "../core/acting";
+import { DUST_DUR } from "../core/moves";
 import type { Action, CamKey, Shot, Timeline } from "../core/types";
 
 // Pure timeline edits. Entries are addressed by their `id` (the validator keeps ids unique across
@@ -135,6 +137,24 @@ export const deleteEntry = (tl: Timeline, id: string): EditResult =>
       default:
         c[at.kind] = (c[at.kind] as Obj[]).filter((x) => x.id !== id) as any;
     }
+  });
+
+/** Changes an action's move and fills in what the new move needs (a destination, a duration). */
+export const setMove = (tl: Timeline, actionId: string, doId: string, facingLeft: boolean): EditResult =>
+  edit(tl, actionId, (_c, at) => {
+    if (at.kind !== "action") return `${actionId} is not an action.`;
+    const e = at.e as Action;
+    e.do = doId;
+    if ((doId === "walk" || doId === "move") && !e.to) {
+      // where the actor stands at this t, ignoring this action itself
+      const others = { ...at.actor, actions: at.actor.actions.filter((a: Action) => a.id !== actionId) };
+      const p = pose(others as any, e.t, () => []);
+      const [x, y] = p ? [p.feet.x, p.feet.y] : [at.actor.x, at.actor.y];
+      e.to = [x + (facingLeft ? -64 : 64), y];
+    }
+    if ((doId === "walk" || doId === "move") && e.dur === undefined) e.dur = 1.5;
+    if ((doId === "look_around" || doId === "startle") && e.dur === undefined) e.dur = 1;
+    if (doId === "dust" && e.dur === undefined) e.dur = DUST_DUR;
   });
 
 /** Sets one field; undefined removes it. Changing the scene's duration moves the last shot's end too. */

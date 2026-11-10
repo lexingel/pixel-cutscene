@@ -1,8 +1,10 @@
 // The asset kit: pieces the user supplied or generated. Generated pieces count only once approved.
 export type Img = { w: number; h: number; px: Uint8ClampedArray }; // RGBA
 export type Piece = { approved: boolean; source: "user" | "pixellab" | "elevenlabs" | "library" | "pixelfx"; ref?: string };
+export type SizeName = "tiny" | "small" | "medium" | "large" | "huge" | "gargantuan";
 export type Kit = {
-  chars: Record<string, { view: "side"; anims: Record<string, Piece & { frames: string[] }>; voice?: string }>; // voice: an ElevenLabs voice id
+  // voice: an ElevenLabs voice id; scale 2: frames were made at half size and are drawn doubled (Scale2x)
+  chars: Record<string, { view: "side"; anims: Record<string, Piece & { frames: string[] }>; voice?: string; scale?: 2; size?: SizeName }>;
   faces: Record<string, Record<string, Piece & { path: string }>>;
   assets: Record<
     string,

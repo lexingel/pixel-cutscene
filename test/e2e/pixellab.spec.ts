@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 // @ts-ignore node types are not part of the browser build
 import { readFileSync } from "node:fs";
+import { openFixture } from "./fixture";
 
 // Every PixelLab call is answered from the hand-made fixtures; no real host is hit.
 const fx = (n: string) => readFileSync(`test/fixtures/pixellab/${n}.json`, "utf8") as string;
@@ -154,4 +155,113 @@ test("settings: every key label sits on the same row as its own box", async ({ p
     });
     expect(Math.abs(box!.y + box!.height / 2 - text.y), name).toBeLessThan(8);
   }
+});
+
+// Opens the candidate form with a name and description filled in; returns the bodies of the paid creates.
+async function genForm(page: Page) {
+  await page.addInitScript(() => localStorage.setItem("pcs.keys", JSON.stringify({ pixellab: "test-key" })));
+  await stubPixellab(page);
+  const sizes: { width: number; height: number }[] = [];
+  page.on("request", (r) => r.method() === "POST" && r.url().endsWith("/create-image-pixen") && sizes.push(r.postDataJSON().image_size));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start a new cutscene" }).click();
+  await page.getByRole("button", { name: "② Cast" }).click();
+  await page.getByRole("button", { name: "Generate with PixelLab" }).click();
+  await page.getByLabel("Character name").fill("wyrm");
+  await page.getByLabel("Description", { exact: true }).fill("a vast wyrm");
+  return sizes;
+}
+
+test("pixellab: a gargantuan creature is generated at half size", async ({ page }) => {
+  const sizes = await genForm(page);
+  await page.getByText("Suggest a size…").click();
+  await page.getByRole("button", { name: /^Gargantuan/ }).click();
+  await expect(page.locator("select[name=size]")).toHaveValue("200");
+  await expect(page.getByText("Will be drawn about 400 px tall, shown at 2×")).toBeVisible();
+  await page.getByRole("button", { name: "Generate 4 candidates" }).click();
+  await page.locator("dialog[open]").getByRole("button", { name: "Run it" }).click();
+  await expect(page.getByRole("group", { name: "Candidates" }).getByRole("button")).toHaveCount(4);
+  expect(sizes[0]).toEqual({ width: 200, height: 200 });
+});
+
+test("pixellab: pixel size stays the main choice", async ({ page }) => {
+  const sizes = await genForm(page);
+  await page.locator("select[name=size]").selectOption("96");
+  await expect(page.getByText("shown at 2×")).toHaveCount(0);
+  await page.getByRole("button", { name: "Generate 4 candidates" }).click();
+  await page.locator("dialog[open]").getByRole("button", { name: "Run it" }).click();
+  await expect(page.getByRole("group", { name: "Candidates" }).getByRole("button")).toHaveCount(4);
+  expect(sizes[0]).toEqual({ width: 96, height: 96 });
+});
+
+test("pixellab: choosing a size by hand clears a suggestion", async ({ page }) => {
+  await genForm(page);
+  await page.getByText("Suggest a size…").click();
+  await page.getByRole("button", { name: /^Gargantuan/ }).click();
+  await expect(page.getByText("shown at 2×")).toBeVisible();
+  await page.locator("select[name=size]").selectOption("128");
+  await expect(page.getByText("shown at 2×")).toHaveCount(0);
+});
+
+test("pixellab: the attack prompt can be edited before paying", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("pcs.keys", JSON.stringify({ pixellab: "test-key" })));
+  await stubPixellab(page);
+  const descs: string[] = [];
+  page.on("request", (r) => r.method() === "POST" && r.url().endsWith("/animate-pixminimax") && descs.push(r.postDataJSON().description));
+  await page.goto("/");
+  await page.locator("input[accept*=zip]").waitFor({ state: "attached" });
+  await page.evaluate(async () => {
+    const src = (f: string) => `/src/core/${f}.ts`;
+    const { newProject, toZip } = await import(src("project"));
+    const p = newProject("Attack fixture");
+    p.canvas = { W: 320, H: 180, exportScale: 2 };
+    const idle = [0, 1, 2, 3].map((i) => `chars/hero/idle/idle_${i}.png`);
+    for (const [i, f] of idle.entries()) p.files.set(f, await (await fetch(`/test/fixtures/sprites/hero/idle_${i}.png`)).blob());
+    p.kit.chars.hero = { view: "side", anims: { idle: { approved: true, source: "user", frames: idle } } };
+    p.files.set("refs/hero.png", p.files.get(idle[0]));
+    p.tl = {
+      name: "atk", duration: 5,
+      shots: [{ id: "s1", type: "wide", start: 0, end: 5, bg_scale: 1, camera: [{ t: 0, x: 0, y: 0 }] }],
+      actors: [{ id: "hero1", char: "hero", x: 80, y: 150, actions: [{ id: "a1", t: 1, do: "anim:attack", dur: 1 }] }],
+      fx: [], audio: [],
+    };
+    const dt = new DataTransfer();
+    dt.items.add(new File([await toZip(p)], "atk.zip", { type: "application/zip" }));
+    const input = document.querySelector<HTMLInputElement>("input[accept*=zip]")!;
+    input.files = dt.files;
+    input.dispatchEvent(new Event("change"));
+  });
+  await expect(page.getByLabel("Project name")).toHaveValue("Attack fixture");
+  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByTestId("needs").locator("li", { hasText: "hero attack" }).getByRole("button", { name: "Generate", exact: true }).click();
+  const box = page.locator("dialog[open]").getByLabel("Motion prompt");
+  await expect(box).toHaveValue(/wind-up, strike, recover/);
+  await box.fill("slashes twice, fast");
+  await page.locator("dialog[open]").getByRole("button", { name: "Run it" }).click();
+  await expect(page.getByText("Generated. Look it over, then Approve or Redo.")).toBeVisible();
+  expect(descs).toEqual(["slashes twice, fast"]);
+});
+
+test("pixellab: Attack from the + menu on a character that has none leads to Generate", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("pcs.keys", JSON.stringify({ pixellab: "test-key" })));
+  await stubPixellab(page);
+  await openFixture(page);
+  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Add a move for hero" }).click();
+  await page.getByRole("menuitem", { name: "Attack" }).click();
+  const row = page.getByTestId("needs").locator("li", { hasText: "hero attack" });
+  await expect(row.getByRole("button", { name: "Generate", exact: true })).toBeEnabled();
+  await row.getByRole("button", { name: "Generate", exact: true }).click();
+  await page.locator("dialog[open]").getByLabel("Motion prompt").fill("");
+  await page.locator("dialog[open]").getByRole("button", { name: "Run it" }).click();
+  await expect(page.getByText("Generated. Look it over, then Approve or Redo.")).toBeVisible();
+});
+
+test("pixellab: Breathe fire from the + menu before it exists adds its flame", async ({ page }) => {
+  await openFixture(page);
+  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Add a move for hero" }).click();
+  await page.getByRole("menuitem", { name: "Breathe fire" }).click();
+  await expect(page.locator(".clip[title=\"hero · Breathe fire\"]")).toBeVisible();
+  await expect(page.locator(".clip.fx[title=\"fire breath\"]")).toBeVisible();
 });

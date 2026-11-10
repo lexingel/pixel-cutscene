@@ -4,14 +4,16 @@ import { elevenKey, voicesFor } from "./eleven";
 import type { CamKey, Timeline } from "../core/types";
 import type { Project } from "../core/project";
 import { pickTrack } from "./music";
-import { addAction, find, moveEntry, resizeEntry, setCamera, setField, snap, type EditResult } from "./timelineEditor";
+import { fxName, labelOf } from "../core/labels";
+import { moveLabel } from "../core/moves";
+import { find, moveEntry, resizeEntry, setCamera, setField, setMove, snap, type EditResult } from "./timelineEditor";
 import { freePath } from "../core/cast";
 import { decode } from "./cast";
 import { toast } from "./dialogs";
 
 type Kind = "num" | "text" | "bool" | "select";
-type Field = { key: string; label: string; kind: Kind; options?: string[]; optional?: boolean };
-type Ctx = { kit: Kit; now: () => number; errors: string[]; kitChanged?: () => void; project?: Project };
+type Field = { key: string; label: string; kind: Kind; options?: string[]; optional?: boolean; text?: (o: string) => string };
+type Ctx = { kit: Kit; now: () => number; errors: string[]; kitChanged?: () => void; project?: Project; move?: (actionId: string, doId: string) => void };
 type Obj = Record<string, any>;
 
 const NUM = (key: string, label = key, optional = false): Field => ({ key, label, kind: "num", optional });
@@ -42,14 +44,14 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
       const anims = Object.keys(kit.chars[at.actor.char]?.anims ?? {}).map((a) => `anim:${a}`);
       const walks = e.do === "walk" || e.do === "move";
       return [
-        { key: "do", label: "action", kind: "select", options: [...ACTIONS, ...anims] },
+        { key: "do", label: "action", kind: "select", options: [...new Set([...ACTIONS, "anim:attack", "anim:breathe", ...anims])], text: moveLabel },
         NUM("t", "t (s)"),
         NUM("dur", "dur (s)", true),
         ...(walks ? [NUM("to.0", "to x"), NUM("to.1", "to y")] : []),
       ];
     }
     case "fx":
-      return [{ key: "fx", label: "effect", kind: "text" }, NUM("t", "t (s)"), NUM("dur", "dur (s)", true), NUM("x"), NUM("y")];
+      return [NUM("t", "t (s)"), NUM("dur", "dur (s)", true), NUM("x"), NUM("y")];
     case "audio":
       return [
         { key: "clip", label: "clip", kind: "text" },
@@ -67,6 +69,11 @@ function change(tl: Timeline, id: string, f: Field, raw: string | boolean): Edit
   if (f.kind === "bool") return setField(tl, id, f.key, raw ? true : f.optional ? undefined : false);
   const text = String(raw).trim();
   if (text === "" && f.optional) return setField(tl, id, f.key, undefined);
+  if (f.key === "do") {
+    const found = find(tl, id)!;
+    const flip = found.kind === "action" ? !!(found.actor as Obj).flip : false;
+    return setMove(tl, id, text, flip);
+  }
   if (f.kind !== "num") return setField(tl, id, f.key, text);
   const n = Number(text);
   if (text === "" || !Number.isFinite(n)) return { tl, error: `${f.label} needs a number.` };
@@ -92,7 +99,7 @@ export function renderInspector(
   const title = at.kind === "root" ? "Scene" : at.kind === "fx" ? "Effect" : at.kind[0].toUpperCase() + at.kind.slice(1);
   host.innerHTML = `<header class="row between"><h2></h2><span class="small id"></span></header><div class="fields"></div>`;
   host.querySelector("h2")!.textContent = title;
-  host.querySelector(".id")!.textContent = at.kind === "root" ? "" : id;
+  host.querySelector(".id")!.textContent = at.kind === "root" ? "" : labelOf(tl, ctx.kit, id);
   const box = host.querySelector<HTMLElement>(".fields")!;
 
   for (const f of fields(tl, id, ctx.kit)) {
@@ -106,7 +113,7 @@ export function renderInspector(
       const opts = f.options!.includes(show(v)) ? f.options! : [show(v), ...f.options!];
       // a speaker no longer in the cast stays selectable as "(missing)" so the user can change it
       const gone = (o: string) => f.key === "speaker" && o !== "" && !f.options!.includes(o);
-      input.append(...opts.map((o) => Object.assign(document.createElement("option"), { value: o, textContent: gone(o) ? `${o} (missing)` : o || "none" })));
+      input.append(...opts.map((o) => Object.assign(document.createElement("option"), { value: o, textContent: gone(o) ? `${o} (missing)` : f.text ? f.text(o) : o || "none" })));
       input.value = show(v);
     } else {
       input = Object.assign(document.createElement("input"), { type: f.kind === "bool" ? "checkbox" : f.kind === "num" ? "number" : "text" });
@@ -116,12 +123,25 @@ export function renderInspector(
       if (f.optional && f.kind !== "bool") input.placeholder = "none";
     }
     input.setAttribute("aria-label", f.label);
-    input.onchange = () => apply(change(tl, id, f, input instanceof HTMLInputElement && input.type === "checkbox" ? input.checked : input.value));
+    input.onchange = () => {
+      if (f.key === "do" && ctx.move && input.value.trim() !== "") return ctx.move(id, input.value.trim()); // Breathe fire also adds its flame
+      apply(change(tl, id, f, input instanceof HTMLInputElement && input.type === "checkbox" ? input.checked : input.value));
+    };
     if (f.kind === "bool") lab.append(input, name);
     else lab.append(name, input);
     box.append(lab);
   }
 
+  if (at.kind === "fx") {
+    // the effect is chosen in the drawer; its asset id is not editable here (an aimed copy has its own sheet)
+    const lab = document.createElement("label");
+    lab.className = "field";
+    const out = Object.assign(document.createElement("output"), { textContent: fxName(ctx.kit, e.fx) });
+    out.dataset.asset = e.fx;
+    out.setAttribute("aria-label", "effect");
+    lab.append(Object.assign(document.createElement("span"), { textContent: "effect" }), out);
+    box.prepend(lab);
+  }
   if (at.kind === "audio" && e.kind === "voice" && e.speaker && kitChar(ctx.kit, e.speaker)) box.append(voicePicker(ctx.kit, e.speaker, ctx.kitChanged));
   if (at.kind === "audio" && e.kind === "music" && ctx.project) {
     const p = ctx.project;
@@ -131,14 +151,6 @@ export function renderInspector(
   }
   if (at.kind === "shot" && ctx.project) box.append(bgUpload(ctx.project, tl, id, apply, ctx.kitChanged));
   if (at.kind === "shot" && e.type === "wide") box.append(cameraKeys(tl, id, e.camera as CamKey[], ctx.now, apply));
-  if (at.kind === "actor") {
-    const b = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: "+ Action", title: "Adds an idle at the playhead; change it in its action box" });
-    b.onclick = () => {
-      const r = addAction(tl, id, { t: ctx.now(), do: "idle" });
-      apply(r, r.id);
-    };
-    box.append(b);
-  }
   if (at.kind === "root") {
     const todo = nextSteps(tl, ctx.kit);
     if (todo.length) {
@@ -211,9 +223,9 @@ function voicePicker(kit: Kit, char: string, changed?: () => void): HTMLElement 
 function nextSteps(tl: Timeline, kit: Kit): string[] {
   const out: string[] = [];
   if (!tl.shots.some((s) => s.bg)) out.push("Click the shot bar in the Shots row, then Upload background.");
-  if (!tl.actors.length) out.push(readyChars(kit).length ? "Press + Actor to put a character in." : "Add a character in ② Cast, then press + Actor here.");
-  else if (!tl.actors.some((a) => a.actions.length)) out.push("Click an actor's name, then + Action to give it something to do.");
-  if (!tl.audio.length) out.push("Press + Music to pick a track (optional).");
+  if (!tl.actors.length) out.push(readyChars(kit).length ? "Drag a character in from Cast on the left." : "Add a character in ② Cast, then drag it in from the left.");
+  else if (!tl.actors.some((a) => a.actions.length)) out.push("Click the + beside an actor's name to give it something to do.");
+  if (!tl.audio.length) out.push("Drag a track in from Sound and Music on the left (optional).");
   if (out.length) out.push("When “Ready to export” shows beside Next: Export, press it.");
   return out;
 }

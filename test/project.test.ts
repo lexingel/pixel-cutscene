@@ -99,3 +99,15 @@ test("the sample zip opens with nothing missing and stays small", async () => {
   const p = await fromZip(new Blob([bytes]));
   expect(missingReport(p.tl!, p.kit, false, (k) => p.files.has(k))).toEqual([]);
 });
+
+test("zip_char_scale_and_size_checked", async () => {
+  const build = async (c: object) => {
+    const p = newProject("s");
+    (p.kit.chars as any).ogre = { view: "side", anims: {}, ...c };
+    return toZip(p);
+  };
+  const ok = await fromZip(await build({ scale: 2, size: "gargantuan" }));
+  expect(ok.kit.chars.ogre.scale).toBe(2);
+  await expect(fromZip(await build({ scale: 3 }))).rejects.toThrow(/ogre.*scale 3.*only 2/);
+  await expect(fromZip(await build({ size: "vast" }))).rejects.toThrow(/ogre.*size "vast"/);
+});

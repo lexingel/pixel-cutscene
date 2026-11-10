@@ -2,15 +2,19 @@ import { baseName, freePath, sortFrames } from "../core/cast";
 import { animStatus, type Kit } from "../core/kit";
 import { NEEDS, missingReport } from "../core/missing";
 import type { Project } from "../core/project";
+import { labelOf } from "../core/labels";
+import { moveLabel } from "../core/moves";
 import { ACTIONS } from "../core/timeline";
 import type { AudioKind, Timeline } from "../core/types";
 import { decode } from "./cast";
 import { toast } from "./dialogs";
-import { find, setField, type EditResult } from "./timelineEditor";
+import { find, setMove, type EditResult } from "./timelineEditor";
 import { pickTrack } from "./music";
 import { audioPlan, elevenKey, generateAudio } from "./eleven";
 import { busy, generate, genPlan, pixellabKey, NO_KEY } from "./pixellab";
 
+// moves the user can add before they exist: they land here to be generated
+const GENERATABLE = ["anim:attack", "anim:breathe"];
 const GEN_AUDIO = ["voice", "sfx", "music"];
 
 type Row = ReturnType<typeof missingReport>[number];
@@ -95,17 +99,17 @@ export function swaps(p: Project, tl: Timeline, id: string): string[] {
   if (at?.kind !== "action") return [];
   const char = at.actor.char;
   const anims = Object.keys(p.kit.chars[char]?.anims ?? {});
-  return [...ACTIONS, ...anims.map((a) => `anim:${a}`)].filter((d) => {
+  return [...new Set([...ACTIONS, ...GENERATABLE, ...anims.map((a) => `anim:${a}`)])].filter((d) => {
     if (d === at.e.do) return false;
     const need = d.startsWith("anim:") ? d.slice(5) : NEEDS[d];
-    if (need && animStatus(p.kit, char, need, false, (k) => p.files.has(k)) !== "ok") return false;
-    return !setField(tl, id, "do", d).error;
+    if (need && !GENERATABLE.includes(d) && animStatus(p.kit, char, need, false, (k) => p.files.has(k)) !== "ok") return false;
+    return !setMove(tl, id, d, false).error;
   });
 }
 
 let urls: string[] = [];
 
-export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditResult) => void, kitChanged: () => void): void {
+export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditResult) => void, kitChanged: () => void, move?: (actionId: string, doId: string) => void): void {
   urls.forEach(URL.revokeObjectURL);
   urls = [];
   const tl = p.tl!;
@@ -128,7 +132,7 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
     const tag = li.querySelector<HTMLElement>(".tag")!;
     tag.textContent = r.why === "missing" ? "missing" : "to approve";
     tag.classList.add(r.why);
-    li.querySelector(".used")!.textContent = `used by ${r.used_by}`;
+    li.querySelector(".used")!.textContent = `used by ${labelOf(tl, p.kit, r.used_by)}`;
     const acts = li.querySelector<HTMLElement>(".acts")!;
     // one run per row: while it is in flight every control on the row is off
     const aud = t?.kind === "asset" && isAudio(t) ? t : null;
@@ -170,10 +174,10 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
     if (opts.length) {
       const sel = document.createElement("select");
       sel.className = "swap";
-      sel.setAttribute("aria-label", `Change action ${r.used_by}`);
+      sel.setAttribute("aria-label", `Change action ${labelOf(tl, p.kit, r.used_by)}`);
       // option text via textContent: anim names come from the project zip and may hold markup
-      sel.append(...["", ...opts].map((o) => Object.assign(document.createElement("option"), { value: o, textContent: o || "Change action…" })));
-      sel.onchange = () => sel.value && apply(setField(tl, r.used_by, "do", sel.value));
+      sel.append(...["", ...opts].map((o) => Object.assign(document.createElement("option"), { value: o, textContent: o ? moveLabel(o) : "Change action…" })));
+      sel.onchange = () => sel.value && (move ? move(r.used_by, sel.value) : apply(setMove(tl, r.used_by, sel.value, !!(find(tl, r.used_by) as any)?.actor?.flip)));
       acts.append(sel);
     }
     list.append(li);

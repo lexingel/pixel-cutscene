@@ -1,6 +1,8 @@
 import { ANIM_FPS, pose, shotAt } from "./acting";
 import { camAt, round } from "./cam";
-import { animStatus, assetStatus, faceStatus, type Img, type Kit } from "./kit";
+import { crumble, hashString } from "./dust";
+import { charFrames } from "./frames";
+import { assetStatus, faceStatus, type Img, type Kit } from "./kit";
 import { blit, crop, fade, fill } from "./raster";
 import type { FxEntry, Timeline } from "./types";
 
@@ -23,8 +25,9 @@ const GLYPHS: Record<string, string[]> = {
 };
 
 function watermark(out: Img): void {
-  const k = Math.max(1, Math.floor(out.h / 60));
-  const x0 = 4 * k, y0 = out.h - 4 * k - 7 * k;
+  // small, top-right: the action is usually low in the frame (feet on the floor)
+  const k = Math.max(1, Math.floor(out.h / 180));
+  const x0 = out.w - 4 * k - 29 * k, y0 = 4 * k;
   [..."DRAFT"].forEach((ch, n) => {
     GLYPHS[ch].forEach((row, gy) => {
       for (let gx = 0; gx < 5; gx++) {
@@ -39,6 +42,21 @@ function watermark(out: Img): void {
       }
     });
   });
+}
+
+/** Every visible pixel recoloured, alpha kept. */
+function tint(img: Img, [r, g, b]: number[]): Img {
+  const px = new Uint8ClampedArray(img.px);
+  for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 0) { px[i] = r; px[i + 1] = g; px[i + 2] = b; }
+  return { w: img.w, h: img.h, px };
+}
+
+function mirror(img: Img): Img {
+  const px = new Uint8ClampedArray(img.px.length);
+  for (let y = 0; y < img.h; y++) for (let x = 0; x < img.w; x++) {
+    px.set(img.px.subarray((y * img.w + img.w - 1 - x) * 4, (y * img.w + img.w - x) * 4), (y * img.w + x) * 4);
+  }
+  return { w: img.w, h: img.h, px };
 }
 
 type FxLive = FxEntry & { dur?: number; hold?: boolean }; // stage.gd also reads dur and hold
@@ -72,13 +90,20 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
     const bg = assetImg(shot.bg ?? "");
     if (bg) blit(out, bg, -cam.x, -cam.y, shot.bg_scale ?? 1);
 
-    const frames = (char: string, anim: string): Img[] =>
-      animStatus(kit, char, anim, draft, has) === "ok" ? kit.chars[char].anims[anim].frames.map((f) => p.img(f)!) : [];
+    const frames = charFrames(kit, p.img, draft, has);
     const posed = tl.actors
-      .map((a) => pose(a, t, frames))
-      .filter((q) => q !== null && q.img !== null)
-      .sort((a, b) => a!.feet.y - b!.feet.y); // stable: ties keep timeline order
-    for (const q of posed) blit(out, q!.img!, q!.drawX - cam.x, q!.drawY - cam.y, 1, q!.flip);
+      .map((a) => ({ id: a.id, q: pose(a, t, frames) }))
+      .filter((e) => e.q !== null && e.q.img !== null)
+      .sort((a, b) => a.q!.feet.y - b.q!.feet.y); // stable: ties keep timeline order
+    for (const { id, q } of posed) {
+      const x = q!.drawX + q!.shake - cam.x, y = q!.drawY - cam.y;
+      let img = q!.img!;
+      if (q!.flash) img = tint(img, [255, 59, 59]);
+      if (q!.dust !== null) {
+        const c = crumble(q!.flip ? mirror(img) : img, q!.dust, hashString(id));
+        blit(out, c.img, x + c.dx, y + c.dy);
+      } else blit(out, img, x, y, 1, q!.flip);
+    }
 
     for (const f of tl.fx) drawFx(p, f as FxLive, t, cam, out, asset);
   }
@@ -104,5 +129,6 @@ function drawFx(
   const n = meta.loop ? ((i % meta.frames) + meta.frames) % meta.frames : Math.min(i, meta.frames - 1);
   const fw = sheet.w / meta.cols, fh = sheet.h / Math.ceil(meta.frames / meta.cols);
   const frame = crop(sheet, (n % meta.cols) * fw, Math.floor(n / meta.cols) * fh, fw, fh);
-  blit(out, frame, round(f.x) - meta.dx - cam.x, round(f.y) - meta.dy - cam.y);
+  const ox = f.flip ? fw - 1 - meta.dx : meta.dx; // mirrored about the origin column
+  blit(out, frame, round(f.x) - ox - cam.x, round(f.y) - meta.dy - cam.y, 1, !!f.flip);
 }

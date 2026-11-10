@@ -1,10 +1,10 @@
 import { importAs } from "../core/cast";
 import { fromZip, newProject, toZip, type Project } from "../core/project";
-import { listProjects, loadProject, saveProject } from "../core/store";
+import { deleteProject, listProjects, loadProject, saveProject } from "../core/store";
 import { renderCast } from "./cast";
 import { renderScene } from "./scene";
 import { renderTweak } from "./tweak";
-import { toast } from "./dialogs";
+import { confirmDialog, toast } from "./dialogs";
 import { openSettings } from "./settings";
 import { renderExport } from "./exportStep";
 import { stepBar, type Step } from "./steps";
@@ -54,9 +54,14 @@ export function mountApp(root: HTMLElement): void {
   };
 
   // A project zip, from the Open zip box or the sample.
-  async function openZip(blob: Blob) {
+  async function openZip(blob: Blob, once = false) {
     try {
       const zipped = await fromZip(blob);
+      const have = once ? (await listProjects()).find((x) => x.name === zipped.name) : undefined;
+      if (have) {
+        location.hash = `#/p/${have.id}`;
+        return;
+      }
       const p = importAs(zipped, (await listProjects()).map((x) => x.id));
       await saveProject(p);
       if (p !== zipped) toast(`This project is already here, so the zip was opened as “${p.name}”.`);
@@ -93,7 +98,7 @@ export function mountApp(root: HTMLElement): void {
       try {
         const r = await fetch(`${import.meta.env.BASE_URL}sample/sample.zip`);
         if (!r.ok) throw new Error();
-        await openZip(await r.blob());
+        await openZip(await r.blob(), true);
       } catch {
         toast("Could not load the sample. Check your connection and try again.", "error");
       } finally {
@@ -110,14 +115,20 @@ export function mountApp(root: HTMLElement): void {
     root.querySelector(".projects")!.append(
       ...list.map(({ id, name, updated }) => {
         const li = document.createElement("li");
-        li.innerHTML = `<a class="proj"><strong></strong><span class="small"></span></a><button class="btn" type="button">Download zip</button>`;
+        li.innerHTML = `<a class="proj"><strong></strong><span class="small"></span></a><button class="btn" type="button">Download zip</button><button class="btn quiet danger" type="button">Delete</button>`;
         const a = li.querySelector("a")!;
         a.href = `#/p/${id}`;
         a.querySelector("strong")!.textContent = name;
         a.querySelector(".small")!.textContent = `Edited ${new Date(updated).toLocaleString()}`;
-        li.querySelector("button")!.onclick = async () => {
+        const [zip, del] = li.querySelectorAll("button");
+        zip.onclick = async () => {
           const p = await loadProject(id);
           if (p) await downloadZip(p);
+        };
+        del.onclick = async () => {
+          if (!(await confirmDialog("Delete project", `Delete "${name}"? This can't be undone. Download the zip first if you want to keep it.`, "Delete", "Cancel", true))) return;
+          await deleteProject(id);
+          await showHome();
         };
         return li;
       }),
@@ -165,6 +176,7 @@ export function mountApp(root: HTMLElement): void {
   addEventListener("dragover", (e) => e.preventDefault());
   addEventListener("drop", (e) => {
     e.preventDefault();
+    if (e.dataTransfer?.types.includes("application/x-pcs-item")) return; // a library item dropped off target: nothing to say
     if (!(e.target as Element | null)?.closest?.(".drop")) toast("Drop the folder on the Use my sprites box", "error");
   });
   addEventListener("hashchange", route);

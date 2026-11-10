@@ -23,6 +23,8 @@ export function probe(file: string) {
 
 export type FixtureOpts = {
   extraAnim?: string; // an approved extra anim on the hero (idle frames); "walk" makes the scene complete
+  breathe?: boolean; // an approved 6-frame `breathe` anim on the hero (0.5 s at 12 fps)
+  unapprovedAnim?: string; // an extra hero anim waiting for approval
   big?: boolean; // 960x540 canvas instead of 320x180
   sound?: boolean; // a 1 s 440 Hz tone at t = 0.5 s, approved
   unapproved?: boolean; // the tone is unapproved (implies sound)
@@ -61,6 +63,8 @@ export async function openFixture(page: Page, opts: FixtureOpts | string = {}) {
       actors: [{ id: "hero1", char: "hero", x: 80, y: 150, actions: [{ id: "a1", t: 1, do: "walk", to: [200, 150], dur: 2 }] }],
       fx: [], audio: [],
     };
+    if (o.breathe) p.kit.chars.hero.anims.breathe = { approved: true, source: "user", frames: [0, 1, 2, 3, 0, 1].map((i) => frames[i]) };
+    if (o.unapprovedAnim) p.kit.chars.hero.anims[o.unapprovedAnim] = { approved: false, source: "pixellab", frames };
     if (o.extraAnim) p.kit.chars.hero.anims[o.extraAnim] = { approved: true, source: "user", frames };
     if (o.sound || o.unapproved) {
       // 16-bit mono WAV, 1 s of 440 Hz at 48 kHz
@@ -82,4 +86,24 @@ export async function openFixture(page: Page, opts: FixtureOpts | string = {}) {
     input.dispatchEvent(new Event("change"));
   }, o);
   await expect(page.getByLabel("Project name")).toHaveValue("Tweak fixture");
+}
+
+/** renderFrame(t) of the saved project at native size, as raw RGBA. */
+export async function nativeFrame(page: Page, t: number, draft = false) {
+  const b64 = await page.evaluate(async ({ t, draft }) => {
+    const src = (f: string) => `/src/${f}.ts`; // served by vite; a variable keeps tsc from resolving it
+    const { renderFrame } = await import(src("core/render"));
+    const { loadProject } = await import(src("core/store"));
+    const { decode } = await import(src("ui/cast"));
+    const p = await loadProject(location.hash.split("/").pop()!);
+    const imgs = new Map();
+    for (const [path, blob] of p.files as Map<string, Blob>) if (path.endsWith(".png")) imgs.set(path, await decode(blob));
+    const { W, H } = p.canvas;
+    const want = { w: W, h: H, px: new Uint8ClampedArray(W * H * 4) };
+    renderFrame({ tl: p.tl, kit: p.kit, img: (k: string) => imgs.get(k) ?? null, draft, W, H }, t, want);
+    let s = "";
+    for (let i = 0; i < want.px.length; i += 0x8000) s += String.fromCharCode(...want.px.subarray(i, i + 0x8000));
+    return btoa(s);
+  }, { t, draft });
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }

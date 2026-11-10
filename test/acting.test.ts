@@ -93,3 +93,31 @@ test("audio plan: offsets, sorting, cut at scene end", () => {
   expect(activeAudio(audio, 9, lens, 30).some((x) => x.id === "v1")).toBe(false);
   expect(activeAudio(audio, 30, lens, 30)).toEqual([]);
 });
+
+test("hurt_flash_and_shake", () => {
+  const a = act({ actions: [{ id: "h", t: 1.0, do: "hurt" }] });
+  const p = (t: number) => pose(a, t, frames)!;
+  expect(p(1.0).flash).toBe(true);
+  expect(p(1.0).shake).toBe(2);
+  expect(p(1.2).flash).toBe(false);
+  expect(p(1.5).shake).toBe(0);
+  expect(p(0.5).flash).toBe(false);
+  expect(p(1.0).anim).toBe("hurt"); // the kit has a hurt anim here
+});
+
+test("dust_progress_then_gone", () => {
+  const a = act({ actions: [{ id: "d", t: 1.0, do: "dust", dur: 1.5 }, { id: "w", t: 3.0, do: "walk", to: [300, 250], dur: 1 }] });
+  expect(pose(a, 0.9, frames)!.dust).toBeNull();
+  expect(pose(a, 1.75, frames)!.dust).toBeCloseTo(0.5);
+  expect(pose(a, 1.75, frames)!.gone).toBe(false);
+  const g = pose(a, 2.5, frames)!;
+  expect(g.gone).toBe(true);
+  expect(g.img).toBeNull();
+  expect(pose(a, 3.5, frames)!.gone).toBe(true);
+});
+
+test("dust freezes the pose at its start", () => {
+  const a = act({ actions: [{ id: "w", t: 0, do: "walk", to: [200, 250], dur: 2 }, { id: "d", t: 1, do: "dust", dur: 1.5 }] });
+  const p0 = pose(a, 1, frames)!, p1 = pose(a, 1.9, frames)!;
+  expect([p1.feet, p1.frame, p1.anim]).toEqual([p0.feet, p0.frame, p0.anim]);
+});

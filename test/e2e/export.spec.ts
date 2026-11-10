@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 // @ts-ignore node types are not part of the browser build
 import { mkdirSync, readFileSync } from "node:fs";
-import { FFMPEG, NO_FFMPEG, ff, openFixture, probe } from "./fixture";
+import { FFMPEG, NO_FFMPEG, ff, nativeFrame, openFixture, probe } from "./fixture";
 
 const OUT = "test-results/export";
 mkdirSync(OUT, { recursive: true });
@@ -11,26 +11,6 @@ const text = (b: Uint8Array) => new TextDecoder().decode(b);
 function frameAt(file: string, n: number) {
   const r = ff("-i", file, "-vf", `select=eq(n\\,${n}),scale=in_color_matrix=bt709:in_range=tv`, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-");
   return r.stdout;
-}
-
-/** renderFrame(t) of the saved project at native size, as raw RGBA. */
-async function nativeFrame(page: Page, t: number, draft = false) {
-  const b64 = await page.evaluate(async ({ t, draft }) => {
-    const src = (f: string) => `/src/${f}.ts`; // served by vite; a variable keeps tsc from resolving it
-    const { renderFrame } = await import(src("core/render"));
-    const { loadProject } = await import(src("core/store"));
-    const { decode } = await import(src("ui/cast"));
-    const p = await loadProject(location.hash.split("/").pop()!);
-    const imgs = new Map();
-    for (const [path, blob] of p.files as Map<string, Blob>) if (path.endsWith(".png")) imgs.set(path, await decode(blob));
-    const { W, H } = p.canvas;
-    const want = { w: W, h: H, px: new Uint8ClampedArray(W * H * 4) };
-    renderFrame({ tl: p.tl, kit: p.kit, img: (k: string) => imgs.get(k) ?? null, draft, W, H }, t, want);
-    let s = "";
-    for (let i = 0; i < want.px.length; i += 0x8000) s += String.fromCharCode(...want.px.subarray(i, i + 0x8000));
-    return btoa(s);
-  }, { t, draft });
-  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
 
 async function exportAndSave(page: Page, button: string, file: string) {
@@ -126,12 +106,12 @@ test("export_refused_with_missing: an unapproved piece blocks the full export; a
   expect(await exportAndSave(page, "Export video", "draft.mp4")).toBe("Tweak fixture_DRAFT.mp4");
 
   test.skip(!FFMPEG, NO_FFMPEG);
-  // native 320x180 draws the watermark at k = 3 from (12, 147); the D's top-left pixel is white, x2 in the file
+  // native 320x180 draws the watermark at k = 1 from (287, 4), top right; the D's top-left pixel is white, x2 in the file
   const f = frameAt(`${OUT}/draft.mp4`, 0);
   const at = (x: number, y: number) => [...f.subarray((y * 640 + x) * 4, (y * 640 + x) * 4 + 3)];
-  for (const v of at(25, 295)) expect(v).toBeGreaterThan(255 - TOL);
+  for (const v of at(575, 9)) expect(v).toBeGreaterThan(255 - TOL);
   const plain = await nativeFrame(page, 0);
-  expect([...plain.subarray((147 * 320 + 12) * 4, (147 * 320 + 12) * 4 + 3)]).not.toEqual([255, 255, 255]); // only the draft has it
+  expect([...plain.subarray((4 * 320 + 287) * 4, (4 * 320 + 287) * 4 + 3)]).not.toEqual([255, 255, 255]); // only the draft has it
 });
 
 test("store loop: a range as native-size WebM and as a 15 fps GIF; cancel never downloads", async ({ page }) => {

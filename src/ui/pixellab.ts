@@ -2,23 +2,39 @@
 // Generate buttons of the Needs-approval list. Every paid call is minted here through confirmPaid.
 import { confirmPaid, type PaidTicket } from "../ai/confirm";
 import { getKeys } from "../ai/keys";
-import type { Img } from "../core/kit";
+import type { Img, SizeName } from "../core/kit";
 import type { Project } from "../core/project";
+import { SIZE_NAMES, mediumHeight, sizePlan } from "../core/sizes";
+import { confirmDialog } from "./dialogs";
 import {
-  COST, SIZES, approvePiece, approveRef, balance, genAnimInto, genBackgroundInto, genCharacter, genFaceInto, refPath, type At, type Size,
+  COST, MOTION, SIZES, approvePiece, approveRef, balance, genAnimInto, genBackgroundInto, genCharacter, genFaceInto, refPath, type At,
 } from "../gen/pixellab";
-import { encode } from "./cast";
+import { decode, encode } from "./cast";
 import { toast } from "./dialogs";
 
 export const NO_KEY = "Add a PixelLab key in Settings to generate.";
 export const pixellabKey = () => getKeys().pixellab;
 
+// The ordinary confirm plus a labelled text box above its buttons.
+const askWithMotion = (motion: { text: string }): typeof confirmDialog => (...a) => {
+  const res = confirmDialog(...a);
+  const d = document.body.lastElementChild!;
+  const box = Object.assign(document.createElement("textarea"), { rows: 3, value: motion.text });
+  box.setAttribute("aria-label", "Motion prompt");
+  box.oninput = () => (motion.text = box.value);
+  d.querySelector("p")!.after(box);
+  return res;
+};
+
 // Confirm (with the live balance in the note), then run. False when cancelled or failed; a failure changes nothing.
-export async function paid(action: string, cost: string, calls: number, run: (key: string, t: PaidTicket) => Promise<void>): Promise<boolean> {
+// `motion`: a text box in the confirm holds the animation prompt; the user's edit lands in motion.text before `run`.
+export async function paid(
+  action: string, cost: string, calls: number, run: (key: string, t: PaidTicket) => Promise<void>, motion?: { text: string },
+): Promise<boolean> {
   const key = pixellabKey();
   if (!key) return toast(NO_KEY, "error"), false;
   const bal = await balance(key).then((b) => b.text, () => "could not be read");
-  const t = await confirmPaid("pixellab", action, `${cost} Your balance: ${bal}.`, calls);
+  const t = await confirmPaid("pixellab", action, `${cost} Your balance: ${bal}.`, calls, motion ? askWithMotion(motion) : confirmDialog);
   if (!t) return false;
   try {
     await run(key, t);
@@ -56,8 +72,10 @@ export function genPlan(p: Project, t: At & { asset?: string }): { label: string
 
 export function generate(p: Project, t: At & { asset?: string }, done: () => void): Promise<boolean> {
   const note = p.description.trim();
+  // attack and breathe are written out in a prompt the user may edit before paying
+  const motion = t.kind === "anim" && (t.anim === "attack" || t.anim === "breathe") ? { text: MOTION[t.anim] } : undefined;
   const ok =
-    t.kind === "anim" ? paid(`Generate ${t.char} ${t.anim}`, COST.anim, 1, (k, tk) => genAnimInto(p, k, t.char, t.anim, "", tk))
+    t.kind === "anim" ? paid(`Generate ${t.char} ${t.anim}`, COST.anim, 1, (k, tk) => genAnimInto(p, k, t.char, t.anim, "", tk, undefined, motion?.text.trim() || undefined), motion)
     : t.kind === "face" ? paid(`Generate ${t.face}'s ${t.expr} face`, COST.face, 1, (k, tk) => genFaceInto(p, k, t.face, t.expr, tk))
     : paid(`Generate background ${t.id}`, COST.background, 1, (k, tk) =>
         genBackgroundInto(p, k, t.id, `side-view game background, ${words(t.id)}${note ? `. Scene: ${note.slice(0, 600)}` : ""}`, tk));
@@ -79,7 +97,8 @@ export function renderGenChar(
   const clear = () => (urls.forEach(URL.revokeObjectURL), (urls = []));
   let name = resume ?? "";
   let desc = "";
-  let size: Size = 64;
+  let size = 64;
+  let sugg: { size: SizeName; scale: 1 | 2 } | null = null; // a size picked from the suggestions
   let cands: Img[] = [];
   let pick = -1;
 
@@ -92,9 +111,51 @@ export function renderGenChar(
     form.innerHTML = `<label class="field">Character name <input name="name" autocomplete="off" placeholder="knight" /></label>
       <label class="field">Description <input name="desc" autocomplete="off" placeholder="a knight in dented armour with a red cape" /></label>
       <label class="field">Size <select name="size">${SIZES.map((s) => `<option value="${s}">${s} px</option>`).join("")}</select></label>
+      <p class="small size-note"></p>
+      <details class="size-sugg"><summary>Suggest a size…</summary><div class="row wrap"></div></details>
       <div class="row end foot"><button class="btn primary" type="button" data-act="cands">Generate 4 candidates</button></div>`;
     const f = (n: string) => form.querySelector<HTMLInputElement>(`[name=${n}]`)!;
-    f("size").value = String(size);
+    const sel = form.querySelector<HTMLSelectElement>("[name=size]")!;
+    const note = form.querySelector<HTMLElement>(".size-note")!;
+    const menu = form.querySelector<HTMLElement>(".size-sugg .row")!;
+    sel.value = String(size);
+    const showNote = () => (note.textContent = sugg?.scale === 2 ? `Will be drawn about ${size * 2} px tall, shown at 2×` : "");
+    // heights are measured against the heroes: the Medium characters already in the cast
+    let mediumPx = 48;
+    const drawMenu = () =>
+      menu.replaceChildren(
+        ...SIZE_NAMES.map((n) => {
+          const plan = sizePlan(n, mediumPx);
+          const b = Object.assign(document.createElement("button"), {
+            type: "button", className: "btn quiet", textContent: `${n[0].toUpperCase()}${n.slice(1)} · about ${plan.genPx * plan.scale} px`,
+          });
+          b.onclick = () => {
+            const { genPx, scale } = sizePlan(n, mediumPx);
+            if (![...sel.options].some((o) => o.value === String(genPx))) {
+              const o = Object.assign(document.createElement("option"), { value: String(genPx), textContent: `${genPx} px` });
+              sel.insertBefore(o, [...sel.options].find((x) => Number(x.value) > genPx) ?? null);
+            }
+            sel.value = String(genPx);
+            size = genPx;
+            sugg = { size: n, scale };
+            showNote();
+          };
+          return b;
+        }),
+      );
+    drawMenu();
+    sel.onchange = () => ((sugg = null), (size = Number(sel.value)), showNote()); // by hand: the suggestion is dropped
+    (async () => {
+      const imgs = new Map<string, Img>();
+      for (const c of Object.values(p.kit.chars)) {
+        const path = c.anims.idle?.frames[0];
+        const blob = path && p.files.get(path);
+        if (path && blob) imgs.set(path, await decode(blob));
+      }
+      if (!form.isConnected) return; // the form was closed while the cast was measured
+      mediumPx = mediumHeight(p, (path) => imgs.get(path) ?? null);
+      drawMenu();
+    })().catch(() => {});
     if (preset) {
       f("name").value = preset.name;
       f("name").readOnly = true;
@@ -104,7 +165,7 @@ export function renderGenChar(
     const candidates = async () => {
       name = f("name").value.trim();
       desc = f("desc").value.trim();
-      size = Number(f("size").value) as Size;
+      size = Number(f("size").value);
       if (!name || /[/\\]/.test(name)) return toast("Give the character a name without slashes.", "error");
       if (p.kit.chars[name]) return toast(`${name} is already in the cast. Pick another name.`, "error");
       if (!desc) return toast("Describe the character first.", "error");
@@ -137,7 +198,7 @@ export function renderGenChar(
     body.querySelector<HTMLButtonElement>("[data-act=redo]")!.onclick = () => form.querySelector<HTMLButtonElement>("[data-act=cands]")!.click();
     approve.onclick = async () => {
       try {
-        await approveRef(p, name, cands[pick]);
+        await approveRef(p, name, cands[pick], undefined, sugg ? { size: sugg.size, scale: sugg.scale === 2 ? 2 : undefined } : {});
       } catch (e) {
         return toast((e as Error).message, "error");
       }

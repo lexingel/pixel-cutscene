@@ -1,5 +1,7 @@
 import { unzip, zip } from "fflate";
-import type { Kit } from "./kit";
+import type { Kit, SizeName } from "./kit";
+
+const SIZES: SizeName[] = ["tiny", "small", "medium", "large", "huge", "gargantuan"];
 import type { Timeline } from "./types";
 
 export type CastNeed = { look: string; anims: string[] };
@@ -58,6 +60,10 @@ export async function fromZip(blob: Blob): Promise<Project> {
   }
   if (!m || typeof m !== "object" || !m.id || !m.name || !m.kit || !m.canvas)
     throw new Error("project.json is missing required fields (id, name, kit, canvas).");
+  for (const [name, c] of Object.entries(m.kit.chars ?? {})) {
+    if (c.scale !== undefined && c.scale !== 2) throw new Error(`Character ${name} has scale ${JSON.stringify(c.scale)}; only 2 is supported.`);
+    if (c.size !== undefined && !SIZES.includes(c.size)) throw new Error(`Character ${name} has size ${JSON.stringify(c.size)}; use ${SIZES.join(", ")}.`);
+  }
   const files = new Map<string, Blob>();
   for (const [k, v] of Object.entries(entries)) if (k.startsWith("files/") && !k.endsWith("/")) files.set(k.slice(6), new Blob([v]));
   const cast = m.cast && typeof m.cast === "object" && !Array.isArray(m.cast) ? m.cast : {};

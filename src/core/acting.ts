@@ -12,6 +12,10 @@ export type Pose = {
   drawY: number;
   anim: string;
   frame: number;
+  flash: boolean; // red hit flash
+  shake: number; // x offset in px
+  dust: number | null; // 0..1 crumble progress, null when not crumbling
+  gone: boolean; // crumbled away for good
 };
 
 /**
@@ -21,13 +25,24 @@ export type Pose = {
  */
 export function pose(actor: Actor, t: number, frames: (char: string, anim: string) => Img[]): Pose | null {
   if (actor.appear !== undefined && t < actor.appear) return null;
+  const sorted = [...actor.actions].sort((a, b) => a.t - b.t);
+  const di = sorted.findIndex((a) => a.do === "dust" && a.t <= t);
+  if (di >= 0) {
+    // freeze on the pose at the moment the dust starts; everything after it is ignored
+    const d = sorted[di], dur = d.dur ?? 0;
+    const u = dur > 0 ? (t - d.t) / dur : 1;
+    const base = pose({ ...actor, appear: undefined, actions: sorted.slice(0, di) }, d.t, frames)!;
+    const gone = u >= 1;
+    return { ...base, img: gone ? null : base.img, flash: false, shake: 0, dust: gone ? 1 : u, gone };
+  }
   let fx = actor.x, fy = actor.y;
   let flip = actor.flip ?? false;
   let anim = "idle";
   let animT = t; // time inside the current animation
   let once = false; // play once and hold the last frame
   let bob = 0;
-  for (const act of [...actor.actions].sort((a, b) => a.t - b.t)) {
+  let flash = false, shake = 0;
+  for (const act of sorted) {
     const t0 = act.t;
     if (t < t0) break;
     const dur = act.dur ?? 0;
@@ -62,6 +77,14 @@ export function pose(actor: Actor, t: number, frames: (char: string, anim: strin
         if (live) { anim = "hurt"; animT = Math.min(t - t0, 1 / ANIM_FPS); once = true; } // frames 1-2, hold 2
         else { anim = "idle"; animT = t - t0 - dur; once = false; }
         break;
+      case "hurt": {
+        const e = t - t0;
+        flash = e < 2 / ANIM_FPS - 1e-9;
+        shake = [2, -2, 1, -1][Math.floor(e * 30 + 0.0001)] ?? 0;
+        const hf = frames(actor.char, "hurt");
+        if (hf.length && e < hf.length / ANIM_FPS) { anim = "hurt"; animT = e; once = true; }
+        break;
+      }
       case "idle":
         anim = "idle"; animT = t - t0; once = false;
         break;
@@ -82,7 +105,7 @@ export function pose(actor: Actor, t: number, frames: (char: string, anim: strin
     img, feet, flip,
     drawX: feet.x - Math.floor((img?.w ?? 0) / 2),
     drawY: feet.y - (img?.h ?? 0) - bob,
-    anim, frame: idx,
+    anim, frame: idx, flash, shake, dust: null, gone: false,
   };
 }
 

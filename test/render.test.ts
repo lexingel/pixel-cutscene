@@ -3,6 +3,8 @@ import miniText from "./fixtures/mini.json?raw";
 import { bakeFx, renderFxFrames } from "../src/core/fxBake";
 import type { Img, Kit } from "../src/core/kit";
 import { blit } from "../src/core/raster";
+import { pose } from "../src/core/acting";
+import { charFrames } from "../src/core/frames";
 import { renderFrame, type RenderInput } from "../src/core/render";
 import type { Timeline } from "../src/core/types";
 import * as torch from "../vendor/pixelfx/src/fx/fire/torch.js";
@@ -117,6 +119,15 @@ describe("renderFrame", () => {
     clean.draw(1.5);
     expect(count(clean.out, [255, 255, 255, 255])).toBe(0);
   });
+  test("the DRAFT watermark is small and in the top-right corner, off the action", () => {
+    const r = setup(flat(tl()), emptyKit(), {}, true, 360, 180); // k = 1 at 180 px tall
+    r.draw(1);
+    const white = [255, 255, 255, 255];
+    expect(at(r.out, 360 - 4 - 29, 4)).toEqual(white); // the D's top-left pixel
+    let low = 0;
+    for (let y = 20; y < 180; y++) for (let x = 0; x < 360; x++) if (at(r.out, x, y).every((v, i) => v === white[i])) low++;
+    expect(low).toBe(0); // nothing below the top strip
+  });
   test("actors are sorted by feet y", () => {
     const t = actorTl();
     t.actors = [
@@ -186,6 +197,22 @@ describe("renderFrame", () => {
       r.draw(3.5);
       expect(at(r.out, 99, 49)).toEqual(BLACK); // hidden after its dur
     });
+    test("fx_flip_mirrors_about_the_origin", () => {
+      const im = solid(4, 1, 0, 0, 0, 0);
+      for (let i = 0; i < 4; i++) im.px.set([(i + 1) * 10, 0, 0, 255], i * 4);
+      const kit = emptyKit();
+      kit.assets.a = { ...piece, kind: "fx", path: "s.png", fx: { cols: 1, frames: 1, fps: 12, loop: true, dx: 1, dy: 0 } };
+      const t = flat(tl());
+      t.fx = [{ id: "f1", t: 0, fx: "a", x: 10, y: 5 }];
+      const r = setup(t, kit, { "s.png": im });
+      r.draw(0);
+      expect([9, 10, 11, 12].map((x) => at(r.out, x, 5)[0])).toEqual([10, 20, 30, 40]);
+      expect(at(r.out, 8, 5)).toEqual(BLACK);
+      t.fx[0].flip = true;
+      r.draw(0);
+      expect([8, 9, 10, 11].map((x) => at(r.out, x, 5)[0])).toEqual([40, 30, 20, 10]);
+      expect(at(r.out, 12, 5)).toEqual(BLACK);
+    });
     test("a one-shot ends after its last frame unless it holds", () => {
       const t = flat(tl());
       t.fx = [{ id: "f1", t: 2, fx: "heal_fx", x: 100, y: 50 }];
@@ -228,5 +255,88 @@ describe("bakeFx", () => {
     }
     expect(diff).toBeLessThanOrEqual(w * h * 0.01);
     expect(b.sheet.px.some((v) => v > 0)).toBe(true);
+  });
+});
+
+describe("v1 projects render unchanged", () => {
+  // Hashes taken on d08d654, before hurt/dust rendering existed.
+  const HASHES: Record<string, string> = {
+    "0": "9f318ea6c53db125a1ecee52b7b22e9faf53330f7cd523735788212055f973fb",
+    "1.5": "3901e587624bc7d1b7299e790cc67251f935bc1d054074073af6ba7a774122f0",
+    "3": "efd28464d176e331e2b9dbb07e8f082d95ec6946ac9c4e5b51d9e5b3ea3bd738",
+  };
+  test("v1_project_renders_unchanged", async () => {
+    const kit = emptyKit();
+    kit.assets.rift_vista = { ...piece, kind: "bg", path: "bg.png" };
+    kit.assets.warrior_realm = { ...piece, kind: "backdrop", path: "b.png" };
+    kit.faces.warrior = { neutral: { ...piece, path: "f.png" } };
+    kit.chars.legend_warrior = { view: "side", anims: { idle: { ...piece, frames: ["w.png"] }, walk: { ...piece, frames: ["w.png", "w2.png"] } } };
+    const imgs = { "bg.png": solid(400, 300, 200, 100, 50), "b.png": solid(320, 180, 100, 150, 200), "f.png": solid(10, 10, 255, 255, 0), "w.png": solid(20, 40, 30, 200, 30), "w2.png": solid(20, 40, 200, 30, 30) };
+    const r = setup(tl(), kit, imgs, false, 200, 300);
+    for (const time of [0, 1.5, 3]) {
+      r.draw(time);
+      const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", r.out.px)), (b) => b.toString(16).padStart(2, "0")).join("");
+      expect(sha).toBe(HASHES[String(time)]);
+    }
+  });
+});
+
+describe("hurt and dust drawing", () => {
+  const red = [255, 59, 59, 255];
+  const stage = () => {
+    const t = flat(tl());
+    t.actors = [{ id: "a", char: "c", x: 50, y: 60, actions: [{ id: "h", t: 1, do: "hurt" }, { id: "d", t: 2, do: "dust", dur: 1.5 }] }];
+    const kit = emptyKit();
+    kit.chars.c = { view: "side", anims: { idle: { ...piece, frames: ["c.png"] } } };
+    return setup(t, kit, { "c.png": solid(10, 20, 0, 255, 0) });
+  };
+  test("flash is #ff3b3b for two frames then normal", () => {
+    const r = stage();
+    r.draw(1.0); expect(at(r.out, 50, 50)).toEqual(red);
+    r.draw(1.2); expect(at(r.out, 50, 50)).toEqual([0, 255, 0, 255]);
+  });
+  test("dust: sprite, then nothing", () => {
+    const r = stage();
+    r.draw(2.0); expect(count(r.out, [0, 255, 0, 255])).toBe(200);
+    r.draw(3.5); expect(count(r.out, [0, 255, 0, 255])).toBe(0);
+    expect(count(r.out, [0x4a, 0x44, 0x40, 255])).toBe(0);
+  });
+});
+
+describe("scale 2 characters", () => {
+  const scaledKit = (): Kit => {
+    const kit = emptyKit();
+    kit.chars.c = { view: "side", scale: 2, anims: { idle: { ...piece, frames: ["c.png"] } } };
+    return kit;
+  };
+  test("scaled_actor_is_drawn_2x_by_its_feet", () => {
+    const t = flat(tl());
+    t.actors = [{ id: "a", char: "c", x: 20, y: 40, actions: [] }];
+    const r = setup(t, scaledKit(), { "c.png": solid(4, 4, 255, 0, 0) });
+    r.draw(0.5);
+    const red = [255, 0, 0, 255];
+    expect(count(r.out, red)).toBe(64);
+    expect(at(r.out, 16, 32)).toEqual(red);
+    expect(at(r.out, 23, 39)).toEqual(red);
+    expect(at(r.out, 15, 32)).toEqual(BLACK);
+    expect(at(r.out, 24, 39)).toEqual(BLACK);
+    expect(at(r.out, 23, 40)).toEqual(BLACK);
+  });
+  test("dust_on_flipped_scaled_actor", () => {
+    const t = flat(tl());
+    t.actors = [{ id: "a", char: "c", flip: true, x: 120, y: 80, actions: [{ id: "w", t: 0, do: "walk", to: [40, 80], dur: 3 }, { id: "d", t: 1, do: "dust", dur: 1 }] }];
+    const imgs = { "c.png": solid(10, 20, 0, 255, 0) };
+    const r = setup(t, scaledKit(), imgs);
+    const q = pose(t.actors[0], 1, charFrames(scaledKit(), (p) => imgs[p as "c.png"], true, () => true))!;
+    expect(q.flip).toBe(true);
+    expect(q.img!.w).toBe(20);
+    r.draw(1);
+    expect(count(r.out, [0, 255, 0, 255])).toBe(20 * 40);
+    for (let y = 0; y < r.out.h; y++) for (let x = 0; x < r.out.w; x++) {
+      const inside = x >= q.drawX && x < q.drawX + 20 && y >= q.drawY && y < q.drawY + 40;
+      if (!inside) expect(at(r.out, x, y)).toEqual(BLACK);
+    }
+    r.draw(2.1); // after dur
+    expect(count(r.out, [0, 255, 0, 255])).toBe(0);
   });
 });

@@ -165,7 +165,7 @@ test("approvals_target_of", () => {
 test("approvals_swaps_need_nothing_new", () => {
   const p = proj();
   // walk needs walk frames, startle needs approved hurt, look_around needs to-less nothing but a dur (a1 has one)
-  expect(swaps(p, p.tl!, "a1")).toEqual(["idle", "look_around", "move", "anim:idle"]);
+  expect(swaps(p, p.tl!, "a1")).toEqual(["idle", "look_around", "move", "hurt", "dust", "anim:attack", "anim:breathe", "anim:idle"]);
   expect(swaps(p, p.tl!, "s2")).toEqual([]); // not an action
 });
 

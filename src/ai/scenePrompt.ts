@@ -50,7 +50,7 @@ ${JSON.stringify(EXAMPLE_REPLY, null, 1)}
 Rules:
 - "shots" are back to back: the first starts at 0, each starts where the previous ends, the last ends at "duration". Shot types: "wide" (needs "camera" keys {t,x,y} and a whole-number "bg_scale"; optional "bg", "fade_in", "fade_out") and "closeup" (needs "face" and "expr"; optional "bg").
 - Actors have "char", "x", "y", optional "flip" and "appear" (seconds), and "actions". Every id in the file is unique; every "t" is between 0 and duration.
-- Actions ("do"): idle; walk (needs "to": [x, y] and "dur"); move (needs "to" and "dur"); look_around (needs "dur"); startle (needs "dur"); anim:<name> for any animation the character has.
+- Actions ("do"): idle; walk (needs "to": [x, y] and "dur"); move (needs "to" and "dur"); look_around (needs "dur"); startle (needs "dur"); hurt (no "dur" needed); dust (needs "dur", the character crumbles and is gone); anim:<name> for any animation the character has.
 - "fx" entries: {id, t, fx, x, y}. "audio" entries: {id, t, clip, kind: music|sfx|voice, optional line, vol_db}.
 - "name" uses only letters, digits, - and _.
 - Canvas is ${canvas.W}x${canvas.H} pixels. bg_scale is a whole number: 2 when the background is drawn at half size and panned across, 1 otherwise. Duration: 10 to 40 seconds.

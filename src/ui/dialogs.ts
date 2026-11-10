@@ -1,5 +1,5 @@
 // Native <dialog> confirm and a polite toast stack.
-export function confirmDialog(title: string, body: string, okLabel: string, cancelLabel = "Cancel"): Promise<boolean> {
+export function confirmDialog(title: string, body: string, okLabel: string, cancelLabel = "Cancel", focusCancel = false): Promise<boolean> {
   const d = document.createElement("dialog");
   d.className = "dialog";
   d.innerHTML = `<form method="dialog"><h2></h2><p></p><div class="row end">
@@ -11,7 +11,7 @@ export function confirmDialog(title: string, body: string, okLabel: string, canc
   ok.textContent = okLabel;
   document.body.append(d);
   d.showModal();
-  ok.focus();
+  (focusCancel ? no : ok).focus();
   return new Promise((res) =>
     d.addEventListener("close", () => {
       res(d.returnValue === "ok");

@@ -5,7 +5,7 @@ import { buildScenePrompt } from "../src/ai/scenePrompt";
 import { readyChars } from "../src/core/kit";
 import { newProject } from "../src/core/project";
 import {
-  approvePiece, approveRef, balance, genAnim, genAnimInto, genBackground, genBackgroundInto, genCharacter, genFace, genFaceInto, refPath, trimShared,
+  approvePiece, approveRef, balance, genAnim, genAnimInto, genBackground, genBackgroundInto, genCharacter, genFace, genFaceInto, MOTION, refPath, trimShared,
 } from "../src/gen/pixellab";
 import { figure, pngBytes, testIo, toBase64 } from "./png";
 import accepted from "./fixtures/pixellab/job-accepted.json?raw";
@@ -231,4 +231,28 @@ test("poll_blip_after_paid_post_keeps_waiting", async () => {
   const frames = await genAnim(KEY, figure(32, 32, 11, 14), "walk", "a knight", await tk(), testIo);
   expect(frames).toHaveLength(5);
   expect(calls.filter((c) => c.init.method === "POST")).toHaveLength(1);
+});
+
+test("background_prompt_says_empty", async () => {
+  const calls = serve("create-image-pixen");
+  await genBackground(KEY, "a cave", 480, 270, await tk(), testIo);
+  expect(body(calls[0]).description).toMatch(/a cave, empty scene, no characters or creatures$/);
+});
+
+test("gargantuan_ref_saved_with_scale_2", async () => {
+  const p = newProject("t");
+  await approveRef(p, "wyrm", figure(200, 200, 10, 10), testIo, { size: "gargantuan", scale: 2 });
+  expect(p.kit.chars.wyrm).toMatchObject({ scale: 2, size: "gargantuan" });
+  await approveRef(p, "imp", figure(32, 32, 10, 10), testIo);
+  expect(p.kit.chars.imp.scale).toBeUndefined();
+});
+
+test("breathe_motion_and_an_edited_prompt_reach_the_request", async () => {
+  expect(MOTION.breathe).toBe("rears its head back, opens its jaws wide and breathes a long stream of fire forward");
+  const calls = serve("job-accepted", "job-anim-completed");
+  await genAnim(KEY, figure(32, 32, 11, 14), "breathe", "a dragon", await tk(), testIo);
+  expect(body(calls[0]).description).toBe(MOTION.breathe);
+  const c2 = serve("job-accepted", "job-anim-completed");
+  await genAnim(KEY, figure(32, 32, 11, 14), "breathe", "a dragon", await tk(), testIo, "spits acid");
+  expect(body(c2[0]).description).toBe("spits acid");
 });

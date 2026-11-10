@@ -35,7 +35,7 @@ export interface Actor {
   locked?: boolean;
 }
 
-export interface FxEntry { id: string; t: number; fx: string; x: number; y: number; locked?: boolean }
+export interface FxEntry { id: string; t: number; fx: string; x: number; y: number; flip?: boolean; angle?: number; dur?: number; locked?: boolean }
 
 export type AudioKind = "music" | "sfx" | "voice";
 export interface AudioEntry {
