@@ -5,7 +5,7 @@ import { actorName, fxName, labelOf, shotName } from "../core/labels";
 import { moveLabel } from "../core/moves";
 import { missingReport } from "../core/missing";
 import type { Project } from "../core/project";
-import { frameZoom, fxEnd, newFxDur, renderFrame } from "../core/render";
+import { actorFocus, frameZoom, fxEnd, newFxDur, renderFrame } from "../core/render";
 import { zoomFrame } from "../core/raster";
 import { pose, shotAt } from "../core/acting";
 import { charFrames } from "../core/frames";
@@ -59,7 +59,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   root.innerHTML = `
   <div class="tweak">
     <aside class="drawer" data-testid="drawer" aria-label="Library"></aside>
-    <div class="d-resize" role="separator" aria-orientation="vertical" aria-label="Library width" tabindex="0" title="Drag to resize the library"></div>
+    <div class="d-resize" role="separator" aria-orientation="vertical" aria-label="Library width" aria-valuemin="160" aria-valuemax="480" tabindex="0" title="Drag to resize the library"></div>
     <div class="stage"><canvas class="px preview" data-testid="preview" aria-label="Preview" tabindex="0"></canvas><canvas class="px overlay" aria-hidden="true"></canvas></div>
     <div class="transport">
       <button class="btn icon" type="button" data-act="play" aria-label="Play (Space)" title="Play / pause (Space)"></button>
@@ -68,7 +68,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       <button class="btn quiet" type="button" data-act="undo" title="Undo (Ctrl+Z)">Undo</button>
       <button class="btn quiet" type="button" data-act="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
       <span class="grow"></span>
-      <button class="btn quiet" type="button" data-act="shot" aria-haspopup="menu" title="Add a shot or a transition at the playhead">+ Shot ▾</button>
+      <button class="btn quiet" type="button" data-act="shot" aria-haspopup="menu" aria-expanded="false" title="Add a shot or a transition at the playhead">+ Shot ▾</button>
       <span class="status" data-testid="status"></span>
       <button class="btn primary" type="button" data-act="next">Next: Export</button>
     </div>
@@ -123,27 +123,28 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     w = Math.round(Math.min(480, Math.max(160, w)));
     grid.style.setProperty("--drawer", `${w}px`);
     grip.setAttribute("aria-valuenow", String(w));
-    try { localStorage.setItem("pc.drawer", String(w)); } catch { /* private window */ }
   };
+  const saveDrawer = () => { try { localStorage.setItem("pc.drawer", grip.getAttribute("aria-valuenow")!); } catch { /* private window */ } };
   try { setDrawer(Number(localStorage.getItem("pc.drawer")) || 220); } catch { setDrawer(220); }
   grip.onpointerdown = (e) => {
     grip.setPointerCapture(e.pointerId);
     const left = $(".drawer").getBoundingClientRect().left;
     grip.onpointermove = (m) => setDrawer(m.clientX - left);
-    grip.onpointerup = () => (grip.onpointermove = null);
+    grip.onpointerup = grip.onpointercancel = () => (grip.onpointermove = grip.onpointerup = grip.onpointercancel = null, saveDrawer());
   };
   grip.onkeydown = (e) => {
     const step = e.key === "ArrowLeft" ? -20 : e.key === "ArrowRight" ? 20 : 0;
-    if (step) { e.preventDefault(); e.stopPropagation(); setDrawer($(".drawer").getBoundingClientRect().width + step); }
+    if (step) { e.preventDefault(); e.stopPropagation(); setDrawer($(".drawer").getBoundingClientRect().width + step); saveDrawer(); }
   };
 
   const zoomed = new Uint8ClampedArray(W * H * 4); // preview zoom is nearest-neighbour at canvas size (approximate); the export zooms in whole output pixels
   function paint() {
     const T = tl();
     t = Math.min(Math.max(t, 0), T.duration);
-    if (T.shots.length) renderFrame({ tl: T, kit: p.kit, img: (k) => imgs.get(k) ?? null, draft: false, W, H }, t, frame);
+    const inp = { tl: T, kit: p.kit, img: (k: string) => imgs.get(k) ?? null, draft: false, W, H };
+    if (T.shots.length) renderFrame(inp, t, frame);
     else frame.px.fill(0);
-    const z = T.shots.length ? frameZoom(T, t) : null;
+    const z = T.shots.length ? frameZoom(inp, t) : null;
     if (z) zoomFrame(frame, z.z, z.x, z.y, 1, zoomed);
     g.putImageData(new ImageData(z ? zoomed : frame.px, W, H), 0, 0);
     $("[data-testid=timecode]").innerHTML = `<b>${t.toFixed(2)}</b> / ${T.duration.toFixed(2)} s <span class="muted">· frame ${Math.round(t * FPS)}</span>`;
@@ -272,11 +273,11 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const focusOn = (a: Actor) => {
       const q = pose(a, at, frames);
       if (!q?.img || !cam) return null;
-      return { x: q.drawX + q.img.w / 2 - cam.x, y: q.drawY + q.img.h * 0.35 - cam.y, z: Math.max(2, Math.min(4, Math.floor((H * 0.9) / q.img.h))) };
+      return { ...actorFocus(q as Parameters<typeof actorFocus>[0], cam), z: Math.max(2, Math.min(4, Math.floor((H * 0.9) / q.img.h))) };
     };
     for (const a of T.actors) {
       const f = focusOn(a);
-      if (f) items.push([`Close-up on ${actorName(T, a.id)}`, () => insertShot(T, at, 2, { zoom: { from: f.z, to: f.z, x: Math.round(f.x), y: Math.round(f.y) } })]);
+      if (f) items.push([`Close-up on ${actorName(T, a.id)}`, () => insertShot(T, at, 2, { zoom: { from: f.z, to: f.z, x: Math.round(f.x), y: Math.round(f.y), actor: a.id } })]);
     }
     for (const [face, exprs] of Object.entries(p.kit.faces))
       for (const expr of Object.keys(exprs)) items.push([`Close-up portrait: ${face} · ${expr}`, () => insertShot(T, at, 2, { type: "closeup", face, expr })]);
@@ -288,8 +289,9 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const sel = T.actors.find((a) => a.id === selected);
     const zf = (sel && focusOn(sel)) || { x: W / 2, y: H / 2 };
     const on = sel ? ` on ${actorName(T, sel.id)}` : "";
-    items.push([`Zoom in${on}`, wideOnly(() => insertShot(T, at, undefined, { zoom: { from: 1, to: 2, x: Math.round(zf.x), y: Math.round(zf.y) } }))]);
-    items.push([`Zoom out${on}`, wideOnly(() => insertShot(T, at, undefined, { zoom: { from: 2, to: 1, x: Math.round(zf.x), y: Math.round(zf.y) } }))]);
+    const follow = sel && focusOn(sel) ? { actor: sel.id } : {};
+    items.push([`Zoom in${on}`, wideOnly(() => insertShot(T, at, undefined, { zoom: { from: 1, to: 2, x: Math.round(zf.x), y: Math.round(zf.y), ...follow } }))]);
+    items.push([`Zoom out${on}`, wideOnly(() => insertShot(T, at, undefined, { zoom: { from: 2, to: 1, x: Math.round(zf.x), y: Math.round(zf.y), ...follow } }))]);
     items.push(["Fade in from black", () => transition(T, at, "fade_in")]);
     items.push(["Fade out to black", () => transition(T, at, "fade_out")]);
     items.push(["White flash", () => transition(T, at, "flash")]);
@@ -492,7 +494,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       if (!canvas.isConnected) return keys.abort();
       if (dragging) return;
       const tgt = e.target as HTMLElement;
-      if (tgt.closest("input, select, textarea, dialog") || document.querySelector("dialog[open]")) return;
+      if (tgt.closest("input, select, textarea, dialog, .move-menu") || document.querySelector("dialog[open]")) return;
       const mod = e.ctrlKey || e.metaKey;
       const nudge = !mod && document.activeElement === canvas ? nudgeTarget(tl(), selected, t) : null; // preview focused + something movable selected
       if (mod && e.key.toLowerCase() === "z") travel(e.shiftKey ? hist.redo(tl()) : hist.undo(tl()));
@@ -536,7 +538,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       `<div class="track ${cls}"><div class="track-label${sel ? " sel" : ""}" ${attrs}>${label}</div><div class="lane" ${attrs}>${lane}</div></div>`;
     const actors = T.actors.map((a) =>
       row(
-        `<span class="who">${esc(actorName(T, a.id))}</span><button class="row-add" type="button" data-add="${esc(a.id)}" aria-haspopup="menu" aria-label="Add a move for ${esc(actorName(T, a.id))}" title="Add a move at the playhead">+</button>`,
+        `<span class="who">${esc(actorName(T, a.id))}</span><button class="row-add" type="button" data-add="${esc(a.id)}" aria-haspopup="menu" aria-expanded="false" aria-label="Add a move for ${esc(actorName(T, a.id))}" title="Add a move at the playhead">+</button>`,
         a.actions.map((x) => bar(x.id, moveLabel(x.do), x.t, x.dur, { grip: x.dur !== undefined, warn: warn.has(x.id), locked: x.locked })).join(""),
         `data-actor="${esc(a.id)}" title="Double-click the lane to add an action"`,
         a.id === selected,
@@ -607,7 +609,8 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const it = b ? find(tl(), id) : null;
     const grip = !!el.closest(".grip");
     const startT = (it?.e.t as number | undefined) ?? 0;
-    const startDur = (it?.e.dur as number | undefined) ?? 0.5;
+    const fxMeta = it?.kind === "fx" ? p.kit.assets[it.e.fx as string]?.fx : undefined;
+    const startDur = fxMeta ? fxEnd(it!.e as { t: number; dur?: number }, fxMeta, D) - startT : ((it?.e.dur as number | undefined) ?? 0.5); // the length the bar shows
     const draggable = edge || (it && it.kind !== "shot");
     let moved = false;
     tracks.onpointermove = (m) => {
@@ -648,9 +651,10 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const r = anchor.getBoundingClientRect();
     menu.style.left = `${r.right + 4}px`;
     menu.style.top = `${Math.max(4, Math.min(r.top, innerHeight - 24 * items.length - 12))}px`;
-    const close = () => (menu.remove(), document.removeEventListener("pointerdown", away, true), refocus());
+    const close = () => (menu.remove(), document.removeEventListener("pointerdown", away, true), anchor.setAttribute("aria-expanded", "false"), refocus());
     const refocus = () => tracks.querySelector<HTMLElement>(`[data-add="${CSS.escape(actorId)}"]`)?.focus();
-    const away = (e: Event) => menu.contains(e.target as Node) || (menu.remove(), document.removeEventListener("pointerdown", away, true));
+    const away = (e: Event) => menu.contains(e.target as Node) || (menu.remove(), document.removeEventListener("pointerdown", away, true), anchor.setAttribute("aria-expanded", "false"));
+    anchor.setAttribute("aria-expanded", "true");
     for (const doId of items) {
       const it = Object.assign(document.createElement("button"), { type: "button", role: "menuitem", textContent: moveLabel(doId) });
       it.onclick = () => {
@@ -691,8 +695,10 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     menu.style.bottom = `${innerHeight - r.top + 4}px`; // opens upwards: the timeline is below the button
     menu.style.maxHeight = `${r.top - 12}px`;
     menu.style.overflowY = "auto";
-    const close = () => (menu.remove(), document.removeEventListener("pointerdown", away, true), anchor.focus());
-    const away = (e: Event) => menu.contains(e.target as Node) || (menu.remove(), document.removeEventListener("pointerdown", away, true));
+    const shut = () => (menu.remove(), document.removeEventListener("pointerdown", away, true), anchor.setAttribute("aria-expanded", "false"));
+    const close = () => (shut(), anchor.focus());
+    const away = (e: Event) => menu.contains(e.target as Node) || shut();
+    anchor.setAttribute("aria-expanded", "true");
     for (const [text, run] of items) {
       const it = Object.assign(document.createElement("button"), { type: "button", role: "menuitem", textContent: text });
       it.onclick = () => (close(), dragging || run());

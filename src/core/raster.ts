@@ -62,7 +62,7 @@ export function crop(img: Img, x: number, y: number, w: number, h: number): Img 
  * the view is pulled in so it never shows past the picture's edges.
  */
 export function zoomFrame(src: Img, z: number, fx: number, fy: number, k: number, out: Uint8ClampedArray): void {
-  const P = k > 1 ? Math.max(k, Math.round(k * z)) : Math.max(1, z); // output pixels per art pixel
+  const P = Math.max(1, k * z); // output pixels per art pixel: whole at a whole zoom, fractional (smooth) while zooming
   const W = src.w * k, H = src.h * k;
   const cl = (c: number, n: number) => { const half = (n * k) / (2 * P); return Math.min(Math.max(c, half), n - half); };
   const cx = cl(fx, src.w), cy = cl(fy, src.h);

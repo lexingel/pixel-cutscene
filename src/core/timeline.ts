@@ -62,6 +62,12 @@ export function validateTimeline(d: unknown): string[] {
     if (!approx(num(s.start, -1), prevEnd)) e.push(`${id}.start: must equal the previous shot's end (${fmt(prevEnd)})`);
     if (num(s.end) <= num(s.start)) e.push(`${id}.end: must be after start`);
     prevEnd = num(s.end);
+    for (const k of ["flash", "shake"]) if (s[k] !== undefined && !(isNum(s[k]) && s[k] >= 0)) e.push(`${id}.${k}: must be 0 or more seconds`);
+    if (s.zoom !== undefined) {
+      const z = s.zoom;
+      if (!isObj(z) || !(isNum(z.from) && z.from >= 1 && isNum(z.to) && z.to >= 1 && hasNum(z, "x") && hasNum(z, "y")))
+        e.push(`${id}.zoom: needs from and to of 1 or more, and x and y numbers`);
+    }
     switch (str(s.type)) {
       case "wide":
         if (!whole(s.bg_scale ?? 1)) e.push(`${id}.bg_scale: must be a whole number of 1 or more`);

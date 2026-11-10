@@ -71,3 +71,28 @@ test("fits 1280x800", async ({ page }) => {
   expect(inView).toBeGreaterThanOrEqual(6);
   await page.screenshot({ path: "test-results/drawer-1280x800.png" });
 });
+
+test("dragging the end of an older looping effect starts from the length its bar shows", async ({ page }) => {
+  await tweak(page);
+  const drawer = page.getByTestId("drawer");
+  await drawer.getByLabel("Search effects").fill("campfire");
+  await drawer.getByRole("button", { name: "campfire" }).focus();
+  await page.keyboard.press("Enter");
+  const dur = page.getByLabel("dur (s)", { exact: true });
+  await expect(dur).toHaveValue("2");
+  await dur.fill(""); // an effect saved before loops had a length: it plays to the scene's end
+  await dur.blur();
+  await expect(dur).toHaveValue("");
+  const shown = await page.evaluate(() => {
+    const b = document.querySelector<HTMLElement>(".clip.fx")!, lane = b.closest(".lane")!;
+    return b.getBoundingClientRect().width / lane.getBoundingClientRect().width;
+  });
+  const grip = page.locator(".clip.fx .grip");
+  const g = (await grip.boundingBox())!;
+  await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(g.x + g.width / 2 - 8, g.y + g.height / 2, { steps: 4 });
+  await page.mouse.up();
+  const D = parseFloat((await page.getByTestId("timecode").textContent())!.split("/")[1]);
+  expect(Number(await dur.inputValue())).toBeGreaterThan(shown * D - 1); // a little shorter, not 0.5 s
+});

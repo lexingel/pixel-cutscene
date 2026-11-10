@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { validateTimeline } from "../src/core/timeline";
-import { renderFrame, zoomAt } from "../src/core/render";
+import { frameZoom, renderFrame, zoomAt } from "../src/core/render";
 import { zoomFrame } from "../src/core/raster";
 import type { Img } from "../src/core/kit";
 import type { Timeline, WideShot } from "../src/core/types";
-import { insertShot, panShot, transition } from "../src/ui/timelineEditor";
+import { insertShot, panShot, splitShot, transition } from "../src/ui/timelineEditor";
 
 const tl = (): Timeline => ({
   name: "t", duration: 6,
@@ -69,15 +69,24 @@ describe("zoom", () => {
     expect(zoomAt(s, 6)).toBe(3);
     expect(zoomAt(tl().shots[0], 3)).toBe(1);
   });
-  it("draws every art pixel as a whole number of output pixels when exported", () => {
+  const rainbow = (): Img => {
     const src: Img = { w: 8, h: 4, px: new Uint8ClampedArray(8 * 4 * 4) };
     for (let i = 0; i < 32; i++) src.px.set([i * 7, i, 0, 255], i * 4); // every pixel a different colour
+    return src;
+  };
+  it("a whole-number zoom draws every art pixel as a whole number of output pixels", () => {
     const k = 3, out = new Uint8ClampedArray(8 * k * 4 * k * 4);
-    zoomFrame(src, 1.5, 4, 2, k, out); // 1.5 at ×3 = 4.5, drawn as 5 output pixels per art pixel
+    zoomFrame(rainbow(), 2, 4, 2, k, out); // 2 at x3 = 6 output pixels per art pixel
     const row = Array.from({ length: 8 * k }, (_, x) => out[(2 * 8 * k + x) * 4]); // a middle row
     const runs: number[] = [];
     row.forEach((v, x) => (x && v === row[x - 1] ? runs[runs.length - 1]++ : runs.push(1)));
-    expect(runs.slice(1, -1).every((n) => n === 5)).toBe(true); // inner runs; the edges may be cut
+    expect(runs.slice(1, -1).every((n) => n === 6)).toBe(true); // inner runs; the edges may be cut
+  });
+  it("an animated zoom exported big moves smoothly, not in whole steps", () => {
+    const k = 3, a = new Uint8ClampedArray(8 * k * 4 * k * 4), b = new Uint8ClampedArray(a.length);
+    zoomFrame(rainbow(), 1.5, 4, 2, k, a);
+    zoomFrame(rainbow(), 1.6, 4, 2, k, b);
+    expect(Array.from(a)).not.toEqual(Array.from(b));
   });
   it("keeps the focus in the frame (the view never leaves the picture)", () => {
     const src: Img = { w: 4, h: 2, px: new Uint8ClampedArray(4 * 2 * 4) };
@@ -100,5 +109,45 @@ describe("flash and shake", () => {
     expect(out.px[0]).toBe(255);
     renderFrame(input(t), 0.3, out);
     expect(out.px[0]).toBe(0);
+  });
+});
+
+describe("review fixes", () => {
+  it("a cut inside a zoom keeps the zoom going from where it was", () => {
+    const t = tl();
+    (t.shots[0] as WideShot).zoom = { from: 1, to: 3, x: 0, y: 0 };
+    const mid = zoomAt(t.shots[0], 3);
+    const [a, b] = splitShot(t, "s1", 3).tl.shots as WideShot[];
+    expect(zoomAt(a, 0)).toBe(1);
+    expect(zoomAt(a, 3)).toBeCloseTo(mid);
+    expect(zoomAt(b, 3)).toBeCloseTo(mid);
+    expect(zoomAt(b, 6)).toBe(3);
+  });
+  it("at the scene's end a new shot asks for the playhead to move back", () => {
+    expect(insertShot(tl(), 6, 2, {}).error).toMatch(/before the end of the scene/);
+  });
+  it("a broken zoom, flash or shake is an error, not a black frame", () => {
+    const t = tl() as any;
+    t.shots[0].zoom = { from: "x", to: 2, x: 0, y: 0 };
+    t.shots[0].flash = -1;
+    t.shots[0].shake = "a";
+    const e = validateTimeline(t).join(" | ");
+    expect(e).toMatch(/s1\.zoom/);
+    expect(e).toMatch(/s1\.flash/);
+    expect(e).toMatch(/s1\.shake/);
+    t.shots[0].zoom = { from: 0.5, to: 2, x: 0, y: 0 };
+    expect(validateTimeline(t).join(" | ")).toMatch(/s1\.zoom/);
+  });
+  it("a zoom that follows an actor keeps them in view as they walk", () => {
+    const t = tl();
+    t.actors = [{ id: "a", char: "c", x: 50, y: 60, actions: [{ id: "w", t: 0, do: "walk", to: [150, 60], dur: 4 }] }];
+    (t.shots[0] as WideShot).zoom = { from: 2, to: 2, x: 0, y: 0, actor: "a" };
+    const piece = { approved: true, source: "user" as const, frames: ["c.png"] };
+    const kit = { chars: { c: { view: "side", anims: { idle: piece, walk: piece } } }, faces: {}, assets: {} } as any;
+    const im: Img = { w: 10, h: 20, px: new Uint8ClampedArray(800) };
+    const p = { tl: t, kit, img: (k: string) => (k === "c.png" ? im : null), draft: false, W: 200, H: 120 };
+    const z0 = frameZoom(p, 0)!, z1 = frameZoom(p, 2)!;
+    expect(z0.x).toBeCloseTo(50, 0);
+    expect(z1.x).toBeGreaterThan(z0.x + 5);
   });
 });

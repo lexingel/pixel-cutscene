@@ -129,12 +129,24 @@ export function zoomAt(s: Shot, t: number): number {
   const u = Math.min(Math.max((t - s.start) / Math.max(s.end - s.start, 0.0001), 0), 1);
   return s.zoom.from + (s.zoom.to - s.zoom.from) * u * u * (3 - 2 * u);
 }
-/** What zoomFrame needs for the frame at t, or null when the shot is not zoomed. */
-export function frameZoom(tl: Timeline, t: number): { z: number; x: number; y: number } | null {
+/** Where a close-up centres on a posed actor, in frame pixels: their middle, a little above (the face reads). */
+export const actorFocus = (q: { drawX: number; drawY: number; img: Img }, cam: { x: number; y: number }) =>
+  ({ x: q.drawX + q.img.w / 2 - cam.x, y: q.drawY + q.img.h * 0.35 - cam.y });
+/** What zoomFrame needs for the frame at t, or null when the shot is not zoomed. A zoom with an actor follows them. */
+export function frameZoom(p: RenderInput, t: number): { z: number; x: number; y: number } | null {
+  const { tl } = p;
   if (!tl.shots.length) return null;
-  const s = shotAt(tl, Math.min(Math.max(t, 0), tl.duration));
+  t = Math.min(Math.max(t, 0), tl.duration);
+  const s = shotAt(tl, t);
   const z = zoomAt(s, t);
-  return s.type === "wide" && s.zoom && z !== 1 ? { z, x: s.zoom.x, y: s.zoom.y } : null;
+  if (s.type !== "wide" || !s.zoom || z === 1) return null;
+  const a = s.zoom.actor ? tl.actors.find((x) => x.id === s.zoom!.actor) : undefined;
+  if (a) {
+    const has = (path: string) => p.img(path) !== null;
+    const q = pose(a, t, charFrames(p.kit, p.img, p.draft, has));
+    if (q?.img) return { z, ...actorFocus(q as { drawX: number; drawY: number; img: Img }, camAt(s.camera, t)) };
+  }
+  return { z, x: s.zoom.x, y: s.zoom.y };
 }
 
 type FxMeta = NonNullable<Kit["assets"][string]["fx"]>;

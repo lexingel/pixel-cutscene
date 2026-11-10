@@ -2,7 +2,8 @@ import { validateTimeline } from "../core/timeline";
 import { pose, shotAt } from "../core/acting";
 import { camAt } from "../core/cam";
 import { DUST_DUR } from "../core/moves";
-import type { Action, CamKey, Shot, Timeline } from "../core/types";
+import { zoomAt } from "../core/render";
+import type { Action, CamKey, Shot, Timeline, WideShot } from "../core/types";
 
 // Pure timeline edits. Entries are addressed by their `id` (the validator keeps ids unique across
 // shots, actors, actions, fx and audio); "(root)" addresses the timeline itself.
@@ -113,6 +114,11 @@ export const splitShot = (tl: Timeline, id: string, t: number): EditResult => {
     delete half.shake;
     delete half.fade_in; // a cut, not a fade: the first half keeps the fade-in, the second the fade-out
     delete at.e.fade_out;
+    if (at.e.type === "wide" && at.e.zoom) { // the zoom carries on from where it was at the cut
+      const z = zoomAt(at.e as Shot, s);
+      at.e.zoom.to = z;
+      (half as WideShot).zoom!.from = z;
+    }
     at.e.end = s;
     c.shots.splice(at.i + 1, 0, half);
   });
@@ -123,6 +129,7 @@ export const splitShot = (tl: Timeline, id: string, t: number): EditResult => {
 export function insertShot(tl: Timeline, t: number, len: number | undefined, patch: Obj): EditResult {
   if (!tl.shots.length) return { tl, error: "Add a shot first." };
   const s0 = shotAt(tl, t), a = snap(t);
+  if (a >= tl.duration - 1e-6) return { tl, error: "Move the playhead before the end of the scene." };
   let cur = tl, id = s0.id;
   if (a > s0.start + 1e-6) {
     const r = splitShot(cur, id, a);

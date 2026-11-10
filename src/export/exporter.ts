@@ -92,7 +92,7 @@ export async function exportVideo(p: Project, opts: ExportOpts, codec?: Containe
   // the frame at time t, zoomed if its shot zooms; at k output pixels per pixel
   const frameAt = (t: number, kk: number) => {
     renderFrame(input, t, native);
-    const z = frameZoom(input.tl, t);
+    const z = frameZoom(input, t);
     if (z) return zoomFrame(native, z.z, z.x, z.y, kk, zoomed), zoomed;
     return kk === 1 ? native.px : upscale(native, kk, big);
   };

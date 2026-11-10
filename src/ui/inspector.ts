@@ -4,7 +4,7 @@ import { elevenKey, voicesFor } from "./eleven";
 import type { CamKey, Timeline } from "../core/types";
 import type { Project } from "../core/project";
 import { pickTrack } from "./music";
-import { fxName, labelOf } from "../core/labels";
+import { actorName, fxName, labelOf } from "../core/labels";
 import { moveLabel } from "../core/moves";
 import { find, moveEntry, resizeEntry, setCamera, setField, setMove, snap, type EditResult } from "./timelineEditor";
 import { freePath } from "../core/cast";
@@ -34,6 +34,11 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
         NUM("fade_out", "fade out (s)", true),
         NUM("flash", "white flash (s)", true),
         ...(e.type === "wide" ? [NUM("shake", "shake (s)", true)] : []),
+        ...(e.type === "wide" && e.zoom ? [ // a zoom made from + Shot; clear "zoom from" or "zoom to" to remove it
+          NUM("zoom.from", "zoom from (×)", true), NUM("zoom.to", "zoom to (×)", true),
+          { key: "zoom.actor", label: "zoom follows", kind: "select" as Kind, options: ["", ...tl.actors.map((a) => a.id)], optional: true, text: (o: string) => (o ? actorName(tl, o) : "a fixed point") },
+          ...(e.zoom.actor ? [] : [NUM("zoom.x", "zoom on x"), NUM("zoom.y", "zoom on y")]),
+        ] : []),
       ];
     case "actor":
       return [
@@ -70,6 +75,16 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
 function change(tl: Timeline, id: string, f: Field, raw: string | boolean): EditResult {
   if (f.kind === "bool") return setField(tl, id, f.key, raw ? true : f.optional ? undefined : false);
   const text = String(raw).trim();
+  if (f.key.startsWith("zoom.")) {
+    const k = f.key.slice(5), z: Obj = { ...find(tl, id)!.e.zoom };
+    if (text === "") {
+      if (k === "from" || k === "to") return setField(tl, id, "zoom", undefined);
+      delete z[k];
+    } else if (k === "actor") z.actor = text;
+    else if (!Number.isFinite(Number(text))) return { tl, error: `${f.label} needs a number.` };
+    else z[k] = Number(text);
+    return setField(tl, id, "zoom", z);
+  }
   if (text === "" && f.optional) return setField(tl, id, f.key, undefined);
   if (f.key === "do") {
     const found = find(tl, id)!;
@@ -89,7 +104,7 @@ function change(tl: Timeline, id: string, f: Field, raw: string | boolean): Edit
   return setField(tl, id, f.key, n);
 }
 
-const valueOf = (e: Obj, key: string) => (key.startsWith("to.") ? e.to?.[Number(key[3])] : e[key]);
+const valueOf = (e: Obj, key: string) => (key.startsWith("to.") ? e.to?.[Number(key[3])] : key.startsWith("zoom.") ? e.zoom?.[key.slice(5)] : e[key]);
 
 export function renderInspector(
   host: HTMLElement, tl: Timeline, selected: string | null, ctx: Ctx,
@@ -121,7 +136,7 @@ export function renderInspector(
       input = Object.assign(document.createElement("input"), { type: f.kind === "bool" ? "checkbox" : f.kind === "num" ? "number" : "text" });
       if (f.kind === "bool") input.checked = !!v;
       else input.value = show(v);
-      if (f.kind === "num") input.step = f.key === "t" || f.key === "dur" || f.key.startsWith("fade") || f.key === "flash" || f.key === "shake" ? String(1 / 30) : "1";
+      if (f.kind === "num") input.step = f.key === "t" || f.key === "dur" || f.key.startsWith("fade") || f.key === "flash" || f.key === "shake" ? String(1 / 30) : f.key === "zoom.from" || f.key === "zoom.to" ? "0.5" : "1";
       if (f.optional && f.kind !== "bool") input.placeholder = "none";
     }
     input.setAttribute("aria-label", f.label);

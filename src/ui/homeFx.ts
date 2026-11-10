@@ -30,7 +30,13 @@ export function startHomeFx(cv: HTMLCanvasElement, keepClear: HTMLElement): void
     age: anyHeight ? Math.random() * 4 : 0,
   });
   size();
-  addEventListener("resize", size);
+  let still = false; // reduced motion: one frame, redrawn after a resize clears the canvas
+  const onResize = () => {
+    if (!cv.isConnected) return removeEventListener("resize", onResize);
+    size();
+    if (still) draw(0);
+  };
+  addEventListener("resize", onResize);
   for (let i = 0; i < 40; i++) embers.push(spawn(true));
 
   const draw = (s: number) => {
@@ -58,10 +64,13 @@ export function startHomeFx(cv: HTMLCanvasElement, keepClear: HTMLElement): void
     }
   };
 
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return draw(0);
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    still = true;
+    return draw(0);
+  }
   let last = performance.now();
   const tick = (now: number) => {
-    if (!cv.isConnected) return removeEventListener("resize", size);
+    if (!cv.isConnected) return removeEventListener("resize", onResize);
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     for (let i = embers.length; i--; ) {

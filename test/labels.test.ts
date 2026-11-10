@@ -43,6 +43,7 @@ describe("labels", () => {
     expect(named({ zoom: { from: 1, to: 2, x: 0, y: 0 } })).toBe("Shot 1 · zoom in");
     expect(named({ zoom: { from: 2, to: 1, x: 0, y: 0 } })).toBe("Shot 1 · zoom out");
     expect(named({ camera: [{ t: 0, x: 0, y: 0 }, { t: 2, x: 40, y: 0 }] })).toBe("Shot 1 · pan");
+    expect(named({ zoom: { from: 1, to: 2, x: 0, y: 0 }, camera: [{ t: 0, x: 0, y: 0 }, { t: 2, x: 40, y: 0 }] })).toBe("Shot 1 · zoom in · pan");
   });
   test("labels_never_show_ids", () => {
     expect(labelOf(tl, kit, "a7")).toBe("dragon · Breathe fire");

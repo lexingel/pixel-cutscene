@@ -280,3 +280,28 @@ test("tweak: + Shot adds a close-up and a white flash at the playhead", async ({
   await page.getByRole("menuitem", { name: "White flash" }).click();
   await expect(page.getByLabel("white flash (s)")).toHaveValue("0.3");
 });
+
+test("tweak: a close-up's zoom shows in the inspector and can be changed; Space picks a menu item", async ({ page }) => {
+  await openFixture(page);
+  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await expect(page.getByTestId("preview")).toHaveAttribute("data-ready", "1");
+  await page.keyboard.press("ArrowRight");
+  const shot = page.getByRole("button", { name: /\+ Shot/ });
+  await shot.click();
+  await expect(shot).toHaveAttribute("aria-expanded", "true");
+  await page.getByRole("menuitem", { name: /^Close-up on / }).first().click();
+  await expect(shot).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByLabel("zoom follows")).not.toHaveValue("");
+  await page.getByLabel("zoom to (×)").fill("1");
+  await page.getByLabel("zoom to (×)").blur(); // change fires
+  await expect(page.locator(".clip.shot", { hasText: "zoom out" })).toHaveCount(1);
+  // Space on the focused first item ("Cut here") cuts instead of starting playback
+  const shots = await page.locator(".clip.shot").count();
+  await page.keyboard.press("ArrowLeft"); // back to 0.00 s, then one frame on: inside the first shot
+  await page.keyboard.press("Shift+ArrowRight");
+  await shot.click();
+  await expect(page.getByRole("menuitem", { name: "Cut here" })).toBeFocused();
+  await page.keyboard.press(" ");
+  await expect(page.locator(".clip.shot")).toHaveCount(shots + 1);
+  await expect(page.getByTestId("timecode")).toContainText("0.03");
+});
