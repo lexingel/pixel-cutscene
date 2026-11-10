@@ -1,6 +1,6 @@
 import type { ParseResult, Timeline } from "./types";
 
-export const ACTIONS = ["idle", "walk", "look_around", "startle", "move", "hurt", "dust"]; // plus "anim:<name>"
+export const ACTIONS = ["idle", "walk", "look_around", "startle", "move", "hurt", "dust", "say"]; // plus "anim:<name>"
 export const KINDS = ["music", "sfx", "voice"];
 const LISTS = ["shots", "actors", "fx", "audio"] as const;
 
@@ -112,6 +112,8 @@ export function validateTimeline(d: unknown): string[] {
       if (["walk", "move", "look_around", "startle", "dust"].includes(what) && num(act.dur) <= 0) {
         e.push(`${id}.dur: ${what} needs a duration`);
       }
+      if (what === "say" && (typeof act.text !== "string" || !act.text.trim())) e.push(`${id}.text: say needs the words to show`);
+      if (what === "say" && act.style !== undefined && !["bubble", "box"].includes(String(act.style))) e.push(`${id}.style: must be bubble or box`);
     }
   }
   for (const f of list("fx")) {
@@ -122,6 +124,7 @@ export function validateTimeline(d: unknown): string[] {
     for (const k of ["x", "y"]) if (!hasNum(f, k)) e.push(`${id}.${k}: must be a number`);
     if (f.flip !== undefined && typeof f.flip !== "boolean") e.push(`${id}.flip: must be true or false`);
     if (f.angle !== undefined && !hasNum(f, "angle")) e.push(`${id}.angle: must be a number`);
+    if (f.reach !== undefined && !(hasNum(f, "reach") && (f.reach as number) >= 1 && (f.reach as number) <= 4)) e.push(`${id}.reach: must be 1 to 4`);
   }
   for (const s of list("audio")) {
     if (!isObj(s)) continue;

@@ -38,7 +38,7 @@ export function labelOf(tl: Timeline, kit: Kit, id: string): string {
   for (const a of tl.actors) {
     if (a.id === id) return actorName(tl, id);
     const act = a.actions.find((x) => x.id === id);
-    if (act) return `${actorName(tl, a.id)} · ${moveLabel(act.do)}`;
+    if (act) return `${actorName(tl, a.id)} · ${act.do === "say" ? `“${act.text ?? ""}”` : moveLabel(act.do)}`;
   }
   const f = tl.fx.find((x) => x.id === id);
   if (f) return fxName(kit, f.fx);

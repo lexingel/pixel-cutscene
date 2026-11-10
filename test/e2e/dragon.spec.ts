@@ -121,7 +121,7 @@ test("three heroes, a dragon, fire, dust", async ({ page }) => {
   await page.mouse.move(pv.x + (mx + 100) * k, pv.y + (my + 8) * k, { steps: 4 });
   await page.mouse.move(pv.x + (mx + 200) * k, pv.y + (my + 18) * k, { steps: 4 });
   await page.mouse.up();
-  await expect(page.locator("output[aria-label=effect]")).toHaveAttribute("data-asset", /_a5$/, { timeout: 120_000 });
+  await expect(page.locator("output[aria-label=effect]")).toHaveAttribute("data-asset", /_a5(_r\d+)?$/, { timeout: 120_000 });
 
   await seekTo(page, 3, 18); // 3.6 s
   for (let i = 1; i <= 3; i++) await addMove(page, `hero ${i}`, "Hurt");

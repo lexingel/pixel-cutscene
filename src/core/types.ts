@@ -26,6 +26,8 @@ export interface Action {
   do: string; // idle | walk | look_around | startle | move | anim:<name>
   to?: [number, number];
   dur?: number;
+  text?: string; // say: the words in the bubble
+  style?: "bubble" | "box"; // say: a bubble over the head (default) or a dialogue box along the bottom
   locked?: boolean;
 }
 
@@ -40,7 +42,7 @@ export interface Actor {
   locked?: boolean;
 }
 
-export interface FxEntry { id: string; t: number; fx: string; x: number; y: number; flip?: boolean; angle?: number; dur?: number; locked?: boolean }
+export interface FxEntry { id: string; t: number; fx: string; x: number; y: number; flip?: boolean; angle?: number; reach?: number; dur?: number; locked?: boolean }
 
 export type AudioKind = "music" | "sfx" | "voice";
 export interface AudioEntry {
@@ -50,6 +52,7 @@ export interface AudioEntry {
   kind: AudioKind;
   line?: string;
   speaker?: string; // optional: the character whose kit voice speaks this line
+  bubble?: "bubble" | "box" | "none"; // voice: how the line shows on screen (default bubble over the speaker)
   vol_db?: number;
   locked?: boolean;
 }

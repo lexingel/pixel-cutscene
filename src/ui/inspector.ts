@@ -11,12 +11,14 @@ import { freePath } from "../core/cast";
 import { decode } from "./cast";
 import { toast } from "./dialogs";
 import { generateShotBg, NO_KEY, pixellabKey } from "./pixellab";
+import { loadFx, REACH_MAX, takesReach } from "../core/fxLibrary";
 
 type Kind = "num" | "text" | "bool" | "select";
 type Field = { key: string; label: string; kind: Kind; options?: string[]; optional?: boolean; text?: (o: string) => string };
-type Ctx = { kit: Kit; now: () => number; errors: string[]; kitChanged?: () => void; project?: Project; move?: (actionId: string, doId: string) => void };
+type Ctx = { kit: Kit; now: () => number; errors: string[]; kitChanged?: () => void; project?: Project; move?: (actionId: string, doId: string) => void; reach?: (fxId: string, reach: number) => void };
 type Obj = Record<string, any>;
 
+const STYLE_TEXT = (o: string) => (o === "box" ? "dialogue box" : o === "none" ? "nothing" : "speech bubble");
 const NUM = (key: string, label = key, optional = false): Field => ({ key, label, kind: "num", optional });
 const show = (v: unknown) => (typeof v === "number" ? String(Math.round(v * 1000) / 1000) : v === undefined ? "" : String(v));
 const assetIds = (kit: Kit, kinds: string[]) => Object.keys(kit.assets).filter((k) => kinds.includes(kit.assets[k].kind));
@@ -56,6 +58,10 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
         NUM("t", "t (s)"),
         NUM("dur", "dur (s)", true),
         ...(walks ? [NUM("to.0", "to x"), NUM("to.1", "to y")] : []),
+        ...(e.do === "say" ? [
+          { key: "text", label: "words", kind: "text" as Kind },
+          { key: "style", label: "shown as", kind: "select" as Kind, options: ["", "box"], optional: true, text: STYLE_TEXT },
+        ] : []),
       ];
     }
     case "fx":
@@ -66,7 +72,10 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
         { key: "kind", label: "kind", kind: "select", options: KINDS },
         NUM("t", "t (s)"),
         { key: "line", label: "line", kind: "text", optional: true },
-        ...(e.kind === "voice" ? [{ key: "speaker", label: "speaker", kind: "select" as Kind, options: ["", ...Object.keys(kit.chars)], optional: true }] : []),
+        ...(e.kind === "voice" ? [
+          { key: "speaker", label: "speaker", kind: "select" as Kind, options: ["", ...Object.keys(kit.chars)], optional: true },
+          { key: "bubble", label: "on screen", kind: "select" as Kind, options: ["", "box", "none"], optional: true, text: STYLE_TEXT },
+        ] : []),
         NUM("vol_db", "volume (dB)", true),
       ];
   }
@@ -159,6 +168,14 @@ export function renderInspector(
     out.setAttribute("aria-label", "effect");
     lab.append(Object.assign(document.createElement("span"), { textContent: "effect" }), out);
     box.prepend(lab);
+    const a = ctx.kit.assets[e.fx];
+    if (a?.source === "pixelfx" && a.ref && ctx.reach) {
+      const reach = ctx.reach, ref = a.ref;
+      loadFx(ref).then((m) => {
+        if (!takesReach(m) || !box.isConnected) return;
+        box.insertBefore(reachField(e.reach ?? 1, (n) => reach(id, n)), box.querySelector(".foot")); // above Locked / Delete
+      }).catch(() => {});
+    }
   }
   if (at.kind === "audio" && e.kind === "voice" && e.speaker && kitChar(ctx.kit, e.speaker)) box.append(voicePicker(ctx.kit, e.speaker, ctx.kitChanged));
   if (at.kind === "audio" && e.kind === "music" && ctx.project) {
@@ -200,6 +217,17 @@ export function renderInspector(
 const kitChar = (kit: Kit, c: string) => kit.chars[c];
 
 // The speaking character's voice id: a pick-list when an ElevenLabs key is set, else a text box.
+// How far the effect carries: as drawn, or longer in half steps (each length bakes its own sheet).
+function reachField(now: number, set: (n: number) => void): HTMLElement {
+  const lab = Object.assign(document.createElement("label"), { className: "field" });
+  const sel = document.createElement("select");
+  sel.setAttribute("aria-label", "reach");
+  for (let r = 1; r <= REACH_MAX; r += 0.5) sel.append(new Option(r === 1 ? "as drawn" : `${r}× as far`, String(r), false, r === now));
+  sel.onchange = () => set(Number(sel.value));
+  lab.append(Object.assign(document.createElement("span"), { textContent: "reach" }), sel);
+  return lab;
+}
+
 function voicePicker(kit: Kit, char: string, changed?: () => void): HTMLElement {
   const lab = document.createElement("label");
   lab.className = "field";

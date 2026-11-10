@@ -101,7 +101,7 @@ export function swaps(p: Project, tl: Timeline, id: string): string[] {
   const char = at.actor.char;
   const anims = Object.keys(p.kit.chars[char]?.anims ?? {});
   return [...new Set([...ACTIONS, ...GENERATABLE, ...anims.map((a) => `anim:${a}`)])].filter((d) => {
-    if (d === at.e.do) return false;
+    if (d === at.e.do || d === "say") return false; // a line of speech is no stand-in for a move
     const need = d.startsWith("anim:") ? d.slice(5) : NEEDS[d];
     if (need && !GENERATABLE.includes(d) && animStatus(p.kit, char, need, false, (k) => p.files.has(k)) !== "ok") return false;
     return !setMove(tl, id, d, false).error;

@@ -36,22 +36,42 @@ export function loadFx(id: string): Promise<FxModule> {
 
 const defaultEncode = async (img: Img): Promise<Blob> => (await import("../ui/cast")).encode(img);
 
-const assetIdOf = (id: string, angle?: number) => {
-  const a = Math.round(angle ?? 0);
-  return id.split("/")[1] + (a ? `_a${a}` : "");
+const assetIdOf = (id: string, angle?: number, reach = 1) => {
+  const a = Math.round(angle ?? 0), r = Math.round(reach * 10);
+  return id.split("/")[1] + (a ? `_a${a}` : "") + (r > 10 ? `_r${r}` : "");
 };
 
-/** Bakes a library effect (aimed `angle` whole degrees, 0 = as drawn) into an approved fx asset; returns its id. */
-export async function addLibraryFx(p: Project, id: string, angle?: number, encode = defaultEncode): Promise<string> {
-  // reuse only this library effect at this angle; a user asset that happens to share the short name is left alone
-  let assetId = assetIdOf(id, angle);
+/** Reach steps a library effect takes (its options list `reach`): 1 = as drawn, up to 4x as far. */
+export const REACH_MAX = 4;
+export const clampReach = (r: number) => Math.min(REACH_MAX, Math.max(1, Math.round(r * 2) / 2));
+export const takesReach = (mod: FxModule) => "reach" in (mod.meta.options ?? {});
+
+/** The effect's module with its cell grown to hold a longer reach (it reaches along +x from its origin). */
+function reached(mod: FxModule, reach: number): FxModule {
+  if (reach <= 1 || !takesReach(mod)) return mod;
+  const [w, h] = mod.meta.size as [number, number], ox = (mod.meta.origin as [number, number])[0];
+  return { ...mod, meta: { ...mod.meta, size: [Math.round(ox + (w - ox) * reach), h] } };
+}
+
+/** How far an effect reaches as drawn, in px from its origin. */
+export const naturalReach = (mod: FxModule) => (mod.meta.size as [number, number])[0] - (mod.meta.origin as [number, number])[0];
+
+/**
+ * Bakes a library effect (aimed `angle` whole degrees, 0 = as drawn; `reach` x as far, for effects that take it)
+ * into an approved fx asset; returns its id.
+ */
+export async function addLibraryFx(p: Project, id: string, angle?: number, encode = defaultEncode, reach = 1): Promise<string> {
+  const mod0 = await loadFx(id);
+  reach = takesReach(mod0) ? clampReach(reach) : 1;
+  // reuse only this library effect at this angle and reach; a user asset that happens to share the short name is left alone
+  let assetId = assetIdOf(id, angle, reach);
   for (let a = p.kit.assets[assetId]; a; a = p.kit.assets[assetId]) {
     if (a.source === "pixelfx" && a.ref === id) return assetId;
     assetId += "_";
   }
-  const mod = await loadFx(id);
+  const mod = reached(mod0, reach);
   const a = Math.round(angle ?? 0);
-  const b = bakeFx(mod, a ? { angle: (a * Math.PI) / 180 } : {}, 30);
+  const b = bakeFx(mod, { ...(a ? { angle: (a * Math.PI) / 180 } : {}), ...(reach > 1 ? { reach } : {}) }, 30);
   const path = freePath(p, "fx/", `${assetId}.png`);
   p.files.set(path, await encode(b.sheet));
   p.kit.assets[assetId] = {
@@ -61,16 +81,21 @@ export async function addLibraryFx(p: Project, id: string, angle?: number, encod
   return assetId;
 }
 
-/** Re-aims an fx entry: bakes the new angle and points the entry (fx and angle) at it. */
-export async function rebakeFx(p: Project, tl: Timeline, entryId: string, angle: number, encode = defaultEncode): Promise<EditResult> {
+/** Re-aims (or re-reaches) an fx entry: bakes the new angle and reach and points the entry (fx, angle, reach) at it. */
+export async function rebakeFx(
+  p: Project, tl: Timeline, entryId: string, angle: number, encode = defaultEncode, reach?: number,
+): Promise<EditResult> {
   const entry = tl.fx.find((f) => f.id === entryId);
   if (!entry) return { tl, error: `No effect called ${entryId}.` };
   const old = entry.fx, a = p.kit.assets[old];
   const id = a?.source === "pixelfx" ? a.ref : undefined;
   if (!id) return { tl, error: `${old} is not a library effect.` };
-  const next = await addLibraryFx(p, id, angle, encode);
-  const r = setField(tl, entryId, "fx", next);
-  return r.error ? r : setField(r.tl, entryId, "angle", Math.round(angle)); // old sheet stays so Undo keeps working
+  const rc = clampReach(reach ?? entry.reach ?? 1);
+  const next = await addLibraryFx(p, id, angle, encode, rc);
+  let r = setField(tl, entryId, "fx", next); // old sheet stays so Undo keeps working
+  if (!r.error) r = setField(r.tl, entryId, "angle", Math.round(angle));
+  if (!r.error && (rc > 1 || entry.reach !== undefined)) r = setField(r.tl, entryId, "reach", rc > 1 ? rc : undefined);
+  return r;
 }
 
 /** The effect's middle frame, for the drawer. */

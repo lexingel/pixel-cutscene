@@ -1,5 +1,5 @@
 import { pose, ANIM_FPS } from "../core/acting";
-import { addLibraryFx } from "../core/fxLibrary";
+import { addLibraryFx, clampReach, loadFx, naturalReach } from "../core/fxLibrary";
 import { charFrames } from "../core/frames";
 import type { Img } from "../core/kit";
 import type { Project } from "../core/project";
@@ -103,6 +103,16 @@ export async function replaceFlames(
   return changed ? { ...tl, fx } : tl;
 }
 
+/** How far a flame from `at` must carry to reach the nearest other actor it faces (1 = as drawn, in half steps, up to 4). */
+export function reachTo(tl: Timeline, self: Timeline["actors"][number], at: { x: number; flip: boolean }, natural: number): number {
+  let d = Infinity;
+  for (const a of tl.actors) {
+    const dx = (a.x - at.x) * (at.flip ? -1 : 1);
+    if (a.id !== self.id && dx > 0) d = Math.min(d, dx);
+  }
+  return d === Infinity ? 1 : clampReach(Math.ceil((d / natural) * 2) / 2);
+}
+
 /**
  * Makes an existing action do `doId`. `anim:breathe` also adds `fire/fire-breath` from two thirds into the clip for
  * FLAME_DUR, at the mouth (see flameAt), flipped like the actor (same result, so one undo step).
@@ -122,9 +132,10 @@ export async function changeMove(
   const frames = await framesOf(p, actor.char, img, decodeImg);
   const at0 = flameAt(actor, t, frames);
   const before = new Set(Object.keys(p.kit.assets));
-  const fx = await addLibraryFx(p, "fire/fire-breath", undefined, encode);
+  const reach = reachTo(moved.tl, actor, at0, naturalReach(await loadFx("fire/fire-breath")));
+  const fx = await addLibraryFx(p, "fire/fire-breath", undefined, encode, reach);
   const flame = addEntry(moved.tl, "fx", {
-    t: at0.t, dur: FLAME_DUR, fx, x: at0.x, y: at0.y, ...(at0.flip ? { flip: true } : {}),
+    t: at0.t, dur: FLAME_DUR, fx, x: at0.x, y: at0.y, ...(at0.flip ? { flip: true } : {}), ...(reach > 1 ? { reach } : {}),
   }, "f");
   if (flame.error && !before.has(fx)) {
     const a = p.kit.assets[fx];

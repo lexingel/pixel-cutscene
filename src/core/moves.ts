@@ -9,6 +9,7 @@ const LABELS: Record<string, string> = {
   startle: "Startle",
   hurt: "Hurt",
   dust: "Turn to dust",
+  say: "Say…",
   "anim:attack": "Attack",
   "anim:breathe": "Breathe fire",
 };

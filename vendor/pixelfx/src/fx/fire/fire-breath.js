@@ -18,6 +18,7 @@ export const meta = {
     spread: 0.24,
     speed: 320,
     seed: 6,
+    reach: 1, // how far the fire carries, x the drawn length (bake with a cell this much longer)
   },
 };
 
@@ -28,7 +29,7 @@ const COOL_LAYERS = [[1, 1, 7], [0.72, 0.82, 6], [0.44, 0.58, 5]];
 const JET = [[42, 4.2, 0], [32, 3.8, -0.08], [30, 3.8, 0.08], [20, 4.6, 0]];
 
 export function draw(p, t, o) {
-  const F = fit(o.palette, 9), H = hotFirst(F), S = o.seed, A = o.spread, V = o.speed;
+  const F = fit(o.palette, 9), H = hotFirst(F), S = o.seed, R = Math.max(1, o.reach ?? 1), A = o.spread / Math.sqrt(R), V = o.speed * R;
   const N = (rate, seed = 0, off = 0) => NL(t, rate, seed, off);
   const GLOW = mix(mix(H[3], H[4], 0.5), WHITE, 0.25), SMOKE = mix(SMOKE1, H[6], 0.3), SPARKS = [H[1], H[2], H[4], H[5]], EMB = [H[1], H[2], H[4], H[6]];
   // the roar: the stream surges and the cone sways a little
@@ -37,7 +38,7 @@ export function draw(p, t, o) {
   // the cone: puffs of flame blown out of the mouth that slow, swell, rise and cool; those near the edges
   // cool first, and many burn out into rolling smoke
   const fire = [], smoke = [];
-  looped(t, D, 260, S + 100, (r) => {
+  looped(t, D, Math.round(260 * R), S + 100, (r) => {
     const e = r.range(-1, 1), fl = r.range(0.42, 0.8) * (1 - 0.3 * Math.abs(e)), sm = r.chance(0.2 + 0.4 * Math.abs(e));
     return { e, sp: r.range(0.75, 1.1), fl, sm, sl: r.range(0.5, 0.85), s: r.range(3, 5.2), f: r.next(), ox: r.range(4, 10), life: fl + (sm ? 0.85 : 0) };
   }, (q, age) => {
@@ -82,11 +83,11 @@ export function draw(p, t, o) {
   });
 
   // sparks flung out ahead and falling; embers lifting off the far end
-  looped(t, D, 40, S + 300, (r) => ({ d: r.range(4, 60), e: r.range(-1, 1), v: r.range(140, 280), life: r.range(0.25, 0.55) }), (q, age) => {
+  looped(t, D, Math.round(40 * R), S + 300, (r) => ({ d: r.range(4, 60 * R), e: r.range(-1, 1), v: r.range(140, 280), life: r.range(0.25, 0.55) }), (q, age) => {
     const a = q.e * A * 1.8 - 0.12, [x, y, vx, vy] = drift(q.d, q.e * q.d * A, Math.cos(a) * q.v, Math.sin(a) * q.v - 30, age, 0, 190, 2, 2);
     spark(p, x, y, vx, vy, 1 - age / q.life, SPARKS);
   });
-  looped(t, D, 18, S + 400, (r) => ({ x: r.range(50, 100), y: r.range(-14, 6), vx: r.range(10, 40), vy: -r.range(20, 50), life: r.range(0.8, 1.4), s: r.chance(0.2) ? 2 : 1, ph: r.range(0, 6.3) }), (q, age) => {
+  looped(t, D, Math.round(18 * R), S + 400, (r) => ({ x: r.range(50 * R, 100 * R), y: r.range(-14, 6), vx: r.range(10, 40), vy: -r.range(20, 50), life: r.range(0.8, 1.4), s: r.chance(0.2) ? 2 : 1, ph: r.range(0, 6.3) }), (q, age) => {
     const [x, y] = drift(q.x, q.y, q.vx, q.vy, age, 0, -30, 1.6, 1.6);
     ember(p, x + 5 * (Math.sin(age * 2.3 + q.ph) - Math.sin(q.ph)), y, 1 - age / q.life, q.s, EMB, age * 40 + q.ph);
   });
@@ -95,6 +96,6 @@ export function draw(p, t, o) {
   const k = roar(t);
   p.glow(3, 0, 34 * k, GLOW, 0.75 * k);
   p.glow(3, 0, 10, H[0], 0.55);
-  for (let d = 10; d < 126; d += 8) p.glow(d, -d * 0.1, 10 + d * 0.2, GLOW, 0.32 * k * (1 - d / 150));
-  p.glow(64, -12, 96, GLOW, 0.16 * k);
+  for (let d = 10; d < 126 * R; d += 8) p.glow(d, -d * 0.1, 10 + d * 0.2 / R, GLOW, 0.32 * k * (1 - d / (150 * R)));
+  p.glow(64 * R, -12, 96, GLOW, 0.16 * k);
 }

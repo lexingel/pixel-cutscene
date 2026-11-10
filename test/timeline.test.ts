@@ -148,3 +148,11 @@ test("keepLocked does not mutate its inputs", () => {
   keepLocked(old, fresh);
   expect(JSON.stringify(fresh)).toBe(snap);
 });
+
+test("fx_reach_is_1_to_4", () => {
+  const d = JSON.parse(miniText);
+  d.fx = [{ id: "f1", t: 0, fx: "x", x: 0, y: 0, reach: 2.5 }, { id: "f2", t: 0, fx: "x", x: 0, y: 0, reach: 5 }];
+  const e = errs(d).join("\n");
+  expect(e).not.toContain("f1.reach");
+  expect(e).toContain("f2.reach: must be 1 to 4");
+});

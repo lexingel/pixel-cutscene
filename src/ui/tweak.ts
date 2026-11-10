@@ -28,7 +28,7 @@ import {
   FPS, History, addAction, addEntry, deleteEntry, find, moveEntry, moveShotEdge, newId, resizeEntry, setField, snap, splitShot, insertShot, panShot, transition, type EditResult,
 } from "./timelineEditor";
 
-const ACTIONS_MENU = ["idle", "walk", "move", "look_around", "startle", "hurt", "dust"];
+const ACTIONS_MENU = ["idle", "walk", "move", "look_around", "startle", "hurt", "dust", "say"];
 const pct = (x: number) => `${(x * 100).toFixed(4)}%`;
 const ICON_PLAY = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>`;
 const ICON_PAUSE = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z" fill="currentColor"/></svg>`;
@@ -554,7 +554,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const actors = T.actors.map((a) =>
       row(
         `<span class="who">${esc(actorName(T, a.id))}</span><button class="row-add" type="button" data-add="${esc(a.id)}" aria-haspopup="menu" aria-expanded="false" aria-label="Add a move for ${esc(actorName(T, a.id))}" title="Add a move at the playhead">+</button>`,
-        a.actions.map((x) => bar(x.id, moveLabel(x.do), x.t, x.dur, { grip: x.dur !== undefined, warn: warn.has(x.id), locked: x.locked })).join(""),
+        a.actions.map((x) => bar(x.id, x.do === "say" ? `“${x.text ?? ""}”` : moveLabel(x.do), x.t, x.dur, { grip: x.dur !== undefined, warn: warn.has(x.id), locked: x.locked })).join(""),
         `data-actor="${esc(a.id)}" title="Double-click the lane to add an action"`,
         a.id === selected,
       )).join("");
@@ -743,13 +743,26 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       })
       .catch((err: Error) => void toast(`Could not change that: ${err.message}`, "error"));
   };
+  // a flame (or any library effect that takes it) re-baked to carry further; one undo step
+  const reachTo = (fxId: string, reach: number) => {
+    queue = queue
+      .then(async () => {
+        const f = tl().fx.find((x) => x.id === fxId);
+        if (!f) return;
+        toast("Stretching…");
+        await new Promise((r) => setTimeout(r, 30)); // let the toast paint before the bake blocks the page
+        commit(await rebakeFx(p, tl(), fxId, f.angle ?? 0, undefined, reach), fxId);
+        await loadImgs();
+      })
+      .catch((err: Error) => void toast(`Could not change the reach: ${err.message}`, "error"));
+  };
   function draw() {
     const T = tl();
     drawTracks();
     drawDrawer();
     const errs = validateTimeline(T);
     const kitChanged = () => (changed(), loadImgs().then(draw));
-    renderInspector($(".inspector"), T, selected, { kit: p.kit, project: p, now: () => t, errors: errs, kitChanged, move: moveTo }, (r, sel) => commit(r, sel), (id) => commit(deleteEntry(tl(), id), null));
+    renderInspector($(".inspector"), T, selected, { kit: p.kit, project: p, now: () => t, errors: errs, kitChanged, move: moveTo, reach: reachTo }, (r, sel) => commit(r, sel), (id) => commit(deleteEntry(tl(), id), null));
     renderApprovals($(".needs-box"), p, (r) => commit(r), kitChanged, moveTo);
     drawFraming();
     drawStatus();

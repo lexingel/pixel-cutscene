@@ -159,3 +159,22 @@ describe("mouth", () => {
     expect(other).toBe(aimed);
   });
 });
+
+import { reachTo } from "../src/ui/addMove";
+describe("flame reach", () => {
+  const tl = (xs: number[]) => ({ actors: xs.map((x, i) => ({ id: `a${i}`, char: "c", x, y: 100, actions: [] })) }) as unknown as Timeline;
+  test("reaches_the_nearest_actor_it_faces", () => {
+    const t = tl([0, 300, 500, -50]);
+    expect(reachTo(t, t.actors[0], { x: 10, flip: false }, 148)).toBe(2); // 290 / 148 = 1.96 -> 2
+    expect(reachTo(t, t.actors[0], { x: 10, flip: true }, 148)).toBe(1); // 60 px behind: as drawn
+    expect(reachTo(tl([0]), tl([0]).actors[0], { x: 10, flip: false }, 148)).toBe(1);
+    expect(reachTo(tl([0, 2000]), tl([0, 2000]).actors[0], { x: 10, flip: false }, 148)).toBe(4);
+  });
+  test("breathe_toward_a_far_actor_stretches_the_flame", async () => {
+    const { p, tl: t } = setup();
+    t.actors.push({ id: "hero2", char: "hero", x: t.actors[0].x + 400, y: t.actors[0].y, actions: [] } as never);
+    const r = await addMove(p, t, "hero1", "anim:breathe", 1, img, encode);
+    expect((r.tl.fx[0] as { reach?: number }).reach).toBeGreaterThan(1);
+    expect(r.tl.fx[0].fx).toMatch(/_r\d+$/);
+  });
+});

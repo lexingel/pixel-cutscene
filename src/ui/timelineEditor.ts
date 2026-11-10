@@ -2,6 +2,7 @@ import { validateTimeline } from "../core/timeline";
 import { pose, shotAt } from "../core/acting";
 import { camAt } from "../core/cam";
 import { DUST_DUR } from "../core/moves";
+import { sayDur } from "../core/bubbles";
 import { zoomAt } from "../core/render";
 import type { Action, CamKey, Shot, Timeline, WideShot } from "../core/types";
 
@@ -209,6 +210,10 @@ export const setMove = (tl: Timeline, actionId: string, doId: string, facingLeft
     if ((doId === "walk" || doId === "move") && e.dur === undefined) e.dur = 1.5;
     if ((doId === "look_around" || doId === "startle") && e.dur === undefined) e.dur = 1;
     if (doId === "dust" && e.dur === undefined) e.dur = DUST_DUR;
+    if (doId === "say") {
+      e.text ??= "..."; // typed in the inspector
+      e.dur ??= sayDur(e.text!);
+    }
   });
 
 /** Sets one field; undefined removes it. Changing the scene's duration moves the last shot's end too. */

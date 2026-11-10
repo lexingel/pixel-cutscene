@@ -135,7 +135,7 @@ test("row menu adds Turn to dust at the playhead", async ({ page }) => {
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
   await page.getByRole("button", { name: "Add a move for hero" }).click();
-  await expect(page.getByRole("menuitem")).toHaveCount(9); // no extra anims in this fixture, plus Attack and Breathe fire
+  await expect(page.getByRole("menuitem")).toHaveCount(10); // no extra anims in this fixture, plus Say, Attack and Breathe fire
   await page.getByRole("menuitem", { name: "Turn to dust" }).click();
   await expect(page.locator(".clip[title$=\"· Turn to dust\"]")).toBeVisible();
   await expect(page.getByLabel("t (s)", { exact: true })).toHaveValue("2");
@@ -147,7 +147,7 @@ test("Play items list only approved anims, never idle, walk or hurt", async ({ p
   await page.getByRole("button", { name: "③ Tweak" }).click();
   await page.getByRole("button", { name: "Add a move for hero" }).click();
   const names = await page.getByRole("menuitem").allTextContents();
-  expect(names).toEqual(["Stand", "Walk to…", "Move to…", "Look around", "Startle", "Hurt", "Turn to dust", "Attack", "Breathe fire"]);
+  expect(names).toEqual(["Stand", "Walk to…", "Move to…", "Look around", "Startle", "Hurt", "Turn to dust", "Say…", "Attack", "Breathe fire"]);
   await page.getByRole("menuitem", { name: "Stand" }).click();
   await expect(page.getByRole("button", { name: "Add a move for hero" })).toBeFocused();
 });
@@ -347,4 +347,34 @@ test("tweak: in a close-up, clicking the character on screen picks them", async 
   await canvas.click({ position: { x: box.width * pt!.x, y: box.height * pt!.y } });
   await expect(page.locator(".inspector h2")).toHaveText("Actor");
   await expect(page.locator(".track-label[data-actor]").first()).toHaveClass(/sel/); // the first actor, the one in the close-up
+});
+
+test("Say… puts a speech bubble on the actor's row, its words typed in the inspector", async ({ page }) => {
+  await openFixture(page);
+  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Add a move for hero" }).click();
+  await page.getByRole("menuitem", { name: "Say…" }).click();
+  const words = page.getByLabel("words", { exact: true });
+  await words.fill("Run!");
+  await words.press("Tab");
+  await expect(page.locator(".clip", { hasText: "“Run!”" })).toBeVisible();
+  await expect(page.getByLabel("shown as", { exact: true })).toHaveValue("");
+});
+
+test("a flame's reach stretches it in one undo step", async ({ page }) => {
+  await stageTweak(page);
+  const drawer = page.getByTestId("drawer");
+  await drawer.getByLabel("Search effects").fill("breath");
+  await drawer.getByRole("button", { name: "fire breath" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".clip.fx")).toContainText("fire breath");
+  const reach = page.getByLabel("reach", { exact: true });
+  await expect(reach).toHaveValue("1");
+  await reach.selectOption("2.5");
+  const fx = page.locator("output[aria-label=effect]");
+  await expect(fx).toHaveAttribute("data-asset", "fire-breath_r25", { timeout: 30000 });
+  await expect(fx).toHaveText("fire breath");
+  await expect(page.getByLabel("reach", { exact: true })).toHaveValue("2.5");
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(fx).toHaveAttribute("data-asset", "fire-breath");
 });

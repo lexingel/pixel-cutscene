@@ -43,7 +43,7 @@ test("a stranger makes and exports a cutscene with no keys", async ({ page }) =>
 
   // ④ Export: the full video is a real MP4
   await page.getByRole("button", { name: "Next: Export" }).click();
-  await expect(page.getByText("Full videos come out as MP4")).toBeVisible();
+  await expect(page.getByText("Full videos come out as MP4")).toBeVisible({ timeout: 30_000 }); // the codec probe is slow while another worker bakes
   await page.screenshot({ path: "test-results/stranger-export-1280x800.png" });
   const dl = page.waitForEvent("download", { timeout: 180_000 });
   await page.getByRole("button", { name: "Export video" }).click();

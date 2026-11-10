@@ -4,6 +4,7 @@ import { crumble, hashString } from "./dust";
 import { charFrames } from "./frames";
 import { assetStatus, faceStatus, type Img, type Kit } from "./kit";
 import { blit, crop, fade, fill } from "./raster";
+import { bubblesAt, drawBox, drawBubble } from "./bubbles";
 import type { FxEntry, Shot, Timeline } from "./types";
 
 export type RenderInput = {
@@ -85,6 +86,7 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
       const k = tl.closeup_scale ?? 3;
       blit(out, face, Math.trunc((p.W - face.w * k) / 2), p.H - face.h * k, k);
     }
+    for (const b of bubblesAt(tl, t)) drawBox(out, b); // a close-up has no head to point at
   } else {
     const cam = camAt(shot.camera, t);
     const into = t - shot.start, sk = shot.shake ?? 0;
@@ -112,6 +114,13 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
     }
 
     for (const f of tl.fx) drawFx(p, f as FxLive, t, cam, out, asset);
+    // speech over everything in the scene: a bubble over the speaker's head (top of the sprite, else 40 px over the feet)
+    for (const b of bubblesAt(tl, t)) {
+      const a = b.style === "bubble" && b.actor ? tl.actors.find((x) => x.id === b.actor) : undefined;
+      const q = a ? pose(a, t, frames) : null;
+      if (q && !q.gone) drawBubble(out, b, q.feet.x - cam.x, (q.img ? q.drawY : q.feet.y - 40) - cam.y);
+      else drawBox(out, b);
+    }
   }
 
   const into = t - shot.start, left = shot.end - t;
