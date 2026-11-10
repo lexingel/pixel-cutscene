@@ -56,6 +56,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   root.innerHTML = `
   <div class="tweak">
     <aside class="drawer" data-testid="drawer" aria-label="Library"></aside>
+    <div class="d-resize" role="separator" aria-orientation="vertical" aria-label="Library width" tabindex="0" title="Drag to resize the library"></div>
     <div class="stage"><canvas class="px preview" data-testid="preview" aria-label="Preview" tabindex="0"></canvas><canvas class="px overlay" aria-hidden="true"></canvas></div>
     <div class="transport">
       <button class="btn icon" type="button" data-act="play" aria-label="Play (Space)" title="Play / pause (Space)"></button>
@@ -112,6 +113,26 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     canvas.title = k >= 1 ? `Preview ×${s}` : `Preview shrunk to ${Math.round(s * 100)}% to fit; the export is pixel-exact`;
   };
   new ResizeObserver(fit).observe(stage);
+
+  // the library is as wide as the user drags it (160-480 px, remembered in this browser)
+  const grid = $(".tweak"), grip = $(".d-resize");
+  const setDrawer = (w: number) => {
+    w = Math.round(Math.min(480, Math.max(160, w)));
+    grid.style.setProperty("--drawer", `${w}px`);
+    grip.setAttribute("aria-valuenow", String(w));
+    try { localStorage.setItem("pc.drawer", String(w)); } catch { /* private window */ }
+  };
+  try { setDrawer(Number(localStorage.getItem("pc.drawer")) || 220); } catch { setDrawer(220); }
+  grip.onpointerdown = (e) => {
+    grip.setPointerCapture(e.pointerId);
+    const left = $(".drawer").getBoundingClientRect().left;
+    grip.onpointermove = (m) => setDrawer(m.clientX - left);
+    grip.onpointerup = () => (grip.onpointermove = null);
+  };
+  grip.onkeydown = (e) => {
+    const step = e.key === "ArrowLeft" ? -20 : e.key === "ArrowRight" ? 20 : 0;
+    if (step) { e.preventDefault(); e.stopPropagation(); setDrawer($(".drawer").getBoundingClientRect().width + step); }
+  };
 
   function paint() {
     const T = tl();

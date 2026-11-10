@@ -1,3 +1,4 @@
+import { startHomeFx } from "./homeFx";
 import { importAs } from "../core/cast";
 import { fromZip, newProject, toZip, type Project } from "../core/project";
 import { deleteProject, listProjects, loadProject, saveProject } from "../core/store";
@@ -75,6 +76,7 @@ export function mountApp(root: HTMLElement): void {
     status = null;
     const list = await listProjects();
     root.innerHTML = `
+    <canvas class="home-fx" aria-hidden="true"></canvas>
     <header class="bar"><span class="brand">Pixel Cutscene</span></header>
     <main class="home">
       <h1>Make a pixel-art cutscene</h1>
@@ -87,6 +89,7 @@ export function mountApp(root: HTMLElement): void {
       <h2 class="projects-head">Your projects</h2>
       <ul class="projects"></ul>
     </main>`;
+    startHomeFx(root.querySelector(".home-fx")!, root.querySelector(".home")!);
     root.querySelector<HTMLButtonElement>("[data-act=new]")!.onclick = async () => {
       const p = newProject("Untitled cutscene");
       await saveProject(p);

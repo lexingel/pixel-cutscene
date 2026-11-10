@@ -68,6 +68,8 @@ a { color: inherit; }
 .step[aria-current="step"] { color: var(--accent); background: var(--accent-soft); font-weight: 650; }
 
 /* Home */
+.home-fx { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; image-rendering: pixelated; }
+.home-fx ~ * { position: relative; z-index: 1; } /* home page content above the backdrop */
 .home { max-width: 760px; margin: 0 auto; padding: 40px 24px; }
 .projects { list-style: none; margin: 24px 0 0; padding: 0; border-top: 1px solid var(--line); }
 .projects li { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--line); }
@@ -154,7 +156,7 @@ a { color: inherit; }
 
 /* Tweak: preview over transport over tracks; inspector and Needs approval on the right */
 .tweak {
-  display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; grid-template-rows: minmax(160px, 1fr) auto auto;
+  display: grid; grid-template-columns: var(--drawer, 220px) minmax(0, 1fr) 300px; grid-template-rows: minmax(160px, 1fr) auto auto;
   gap: 10px 16px; height: calc(100vh - 56px - 48px); min-height: 520px;
 }
 .stage {
@@ -324,11 +326,11 @@ input[type=checkbox] { accent-color: var(--accent); }
   grid-column: 1; grid-row: 1 / -1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px;
 }
-.d-sec { display: grid; gap: 8px; }
+.d-sec { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; overflow-x: hidden; }
 .d-sec h2 { margin: 0; font-size: 13px; color: var(--muted); }
 .d-sec select, .d-sec input[type=search] { font: inherit; font-size: 12.5px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; min-width: 0; width: 100%; box-sizing: border-box; }
-.d-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
-.d-list { display: grid; gap: 2px; }
+.d-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 4px; }
+.d-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
 .d-item { font: inherit; color: inherit; background: none; border: 1px solid transparent; border-radius: var(--radius); cursor: grab; text-align: left; }
 .d-item:hover { background: var(--raised); border-color: var(--line); }
 .d-item:focus-visible, .d-play:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -339,7 +341,9 @@ input[type=checkbox] { accent-color: var(--accent); }
 .d-item.row { display: flex; gap: 6px; align-items: baseline; padding: 4px 6px; flex: 1; min-width: 0; }
 .d-item.row .d-name { font-size: 12.5px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-sub { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.d-row { display: flex; align-items: center; gap: 2px; }
+.d-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.d-resize { grid-column: 1; grid-row: 1 / -1; justify-self: end; width: 8px; margin-right: -12px; z-index: 1; border-radius: 4px; cursor: col-resize; touch-action: none; }
+.d-resize:hover, .d-resize:focus-visible { background: var(--accent); opacity: .5; outline: none; }
 .d-play { font: inherit; font-size: 11px; width: 26px; height: 26px; padding: 0; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
 .d-play:hover { color: var(--text); background: var(--raised); }
 .d-cast { flex: none; max-height: 25%; overflow-y: auto; align-content: start; }
