@@ -59,8 +59,17 @@ const post = async (key: string, path: string, body: object, ticket: PaidTicket)
 // Async endpoints: one paid POST, then free status reads until the job ends.
 async function job(key: string, path: string, body: object, ticket: PaidTicket, io: Io): Promise<Record<string, unknown>> {
   const { background_job_id: id } = await post(key, path, body, ticket);
+  let misses = 0; // the job is already paid for: a few failed status reads in a row are waited out
   for (let i = 0; i < 150; i++) {
-    const j = await (await callFree("pixellab", `${API}/background-jobs/${encodeURIComponent(id)}`, { headers: auth(key) })).json();
+    let j: Record<string, any>;
+    try {
+      j = await (await callFree("pixellab", `${API}/background-jobs/${encodeURIComponent(id)}`, { headers: auth(key) })).json();
+      misses = 0;
+    } catch (e) {
+      if (++misses > 3) throw e;
+      await io.wait(4000);
+      continue;
+    }
     if (j.status === "completed") return j.last_response ?? {};
     if (j.status === "failed") throw new Error(String(j.last_response?.detail ?? "PixelLab could not make this"));
     await io.wait(4000);

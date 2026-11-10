@@ -233,7 +233,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     commit(r, r.id);
   };
   $<HTMLButtonElement>("[data-act=sound]").onclick = () => {
-    const r = addEntry(tl(), "audio", { t: snap(t), clip: "sound1", kind: "sfx" }, "sound");
+    const r = addEntry(tl(), "audio", { t: snap(t), clip: newId(tl(), "sound"), kind: "sfx" }, "sound");
     commit(r, r.id);
   };
   // A music entry, then the library; closed without a pick, it waits in Needs approval.

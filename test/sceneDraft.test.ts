@@ -122,3 +122,30 @@ test("draft_drops_prototype_cast_ids", async () => {
   const r = await draftScene(keys, kit, canvas, "a cave", null, ticket, stub(wrapped(cast)).fn);
   expect(r.ok && r.cast.map((c) => c.id)).toEqual(["ghost"]);
 });
+
+test("draft_fills_missing_lists", async () => {
+  const bare = { name: "t", duration: 10, shots: good().shots, actors: [{ id: "h1", char: "hero", x: 10, y: 10 }] };
+  const r = await draftScene(keys, kit, canvas, "a cave", null, ticket, stub(JSON.stringify(bare)).fn);
+  expect(r.ok).toBe(true);
+  if (!r.ok) return;
+  expect(r.tl.fx).toEqual([]);
+  expect(r.tl.audio).toEqual([]);
+  expect(r.tl.actors[0].actions).toEqual([]);
+});
+
+test("redraft_invalid_after_keepLocked_keeps_current", async () => {
+  // a locked middle shot plus one fresh full-length shot leaves the end uncovered
+  const current: Timeline = {
+    ...good(),
+    shots: [
+      { id: "s1", type: "wide", start: 0, end: 4, bg_scale: 1, camera: [{ t: 0, x: 0, y: 0 }] },
+      { id: "s2", type: "wide", start: 4, end: 6, bg_scale: 1, camera: [{ t: 4, x: 0, y: 0 }], locked: true },
+      { id: "s3", type: "wide", start: 6, end: 10, bg_scale: 1, camera: [{ t: 6, x: 0, y: 0 }] },
+    ],
+  } as Timeline;
+  const before = JSON.stringify(current);
+  const r = await draftScene(keys, kit, canvas, "a cave", current, ticket, stub(JSON.stringify(good())).fn);
+  if (r.ok) expect(validateTimeline(r.tl)).toEqual([]);
+  else expect(r.error).toMatch(/locked/i);
+  expect(JSON.stringify(current)).toBe(before);
+});

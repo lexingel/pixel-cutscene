@@ -68,6 +68,10 @@ test("tweak without a timeline offers a way forward", async ({ page }) => {
   await expect(page.getByTestId("needs")).toContainText("Nothing missing");
   await page.getByRole("button", { name: "+ Sound" }).click();
   await expect(page.getByTestId("needs")).toContainText("sound1");
+  // a second sound gets its own clip, not sound1 again
+  await page.getByRole("button", { name: "+ Sound" }).click();
+  await expect(page.getByTestId("needs").locator("li")).toHaveCount(2);
+  await expect(page.getByTestId("needs").locator("li", { hasText: "sound1" })).toHaveCount(1);
 });
 
 test("names from a project zip are shown as text, never as markup", async ({ page }) => {

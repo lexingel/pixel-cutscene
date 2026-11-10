@@ -47,8 +47,18 @@ const check = (text: string): { tl: Timeline; cast: CastEntry[] } | { errors: st
   const tl = wrapped ? (j as { timeline: unknown }).timeline : j;
   const cast = wrapped ? parseCast((j as { cast?: unknown }).cast) : [];
   const errors = validateTimeline(tl);
-  return errors.length ? { errors, cast } : { tl: tl as Timeline, cast };
+  return errors.length ? { errors, cast } : { tl: fillLists(tl as Timeline), cast };
 };
+
+// The format lets lists be left out; the editor and renderer expect them all.
+function fillLists(tl: Timeline): Timeline {
+  tl.shots ??= [];
+  tl.actors ??= [];
+  tl.fx ??= [];
+  tl.audio ??= [];
+  for (const a of tl.actors) a.actions ??= [];
+  return tl;
+}
 
 // Up to 2 chat calls (draft + one repair): the caller's ticket must cover both. Never mutates `current`.
 export async function draftScene(
@@ -72,8 +82,11 @@ export async function draftScene(
       r = check(reply);
     }
     if ("errors" in r) return { ok: false, error: r.errors.slice(0, 5).join("; ") };
+    const tl = current ? fillLists(keepLocked(current, r.tl)) : r.tl;
+    const left = validateTimeline(tl);
+    if (left.length) return { ok: false, error: `The new draft does not fit around your locked pieces: ${left.slice(0, 3).join("; ")}` };
     // a bare repair reply keeps the cast the first reply named
-    return { ok: true, tl: current ? keepLocked(current, r.tl) : r.tl, cast: r.cast.length ? r.cast : first };
+    return { ok: true, tl, cast: r.cast.length ? r.cast : first };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }

@@ -224,3 +224,11 @@ test("approveRef_refuses_a_taken_name", async () => {
   await expect(approveRef(p, "hero", figure(32, 32, 1, 1), testIo)).rejects.toThrow("already in the cast");
   expect(p.files.get(refPath("hero"))).toBe(ref);
 });
+
+test("poll_blip_after_paid_post_keeps_waiting", async () => {
+  // a 429 and a 500 on status reads do not throw away the paid job
+  const calls = serve("job-accepted", 429, 500, "job-anim-completed");
+  const frames = await genAnim(KEY, figure(32, 32, 11, 14), "walk", "a knight", await tk(), testIo);
+  expect(frames).toHaveLength(5);
+  expect(calls.filter((c) => c.init.method === "POST")).toHaveLength(1);
+});

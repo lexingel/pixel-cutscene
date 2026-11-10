@@ -8,7 +8,7 @@ export function openSettings(onSaved?: () => void): void {
   const d = document.createElement("dialog");
   d.className = "dialog";
   d.innerHTML = `<form method="dialog"><h2>Keys</h2>
-    <p>Stored only in this browser. Each key is sent only to its own provider.</p>
+    <p>Stored only in this browser. Each key is sent only to its own provider. Use a key with a spending limit, and remove it here when you are done.</p>
     <label>AI provider <select name="provider"><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option><option value="google">Google</option></select></label>
     <label>Model <input name="model" /></label>
     <label>AI key <input name="ai" type="password" autocomplete="off" /></label>

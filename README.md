@@ -13,6 +13,7 @@ Click **Open the sample** on the home screen to see a finished scene.
 
 Everything runs in your browser. Projects are saved in this browser's storage, and **Download zip** gives you a copy.
 API keys (AI provider, PixelLab, ElevenLabs) are optional. You add them in Settings, they are kept only in this browser's local storage, and they go only to the provider they belong to. Any call that costs money asks you first.
+Browser storage is shared by every page on the same origin (here `lexingel.github.io`), so use keys with a spending limit and clear them in Settings when you are done. If you run the tool yourself (below), your keys stay on your own origin.
 
 ## Run it locally
 
@@ -21,7 +22,7 @@ npm ci
 npm run dev
 ```
 
-`npm test` runs the unit tests, `npm run e2e` the browser tests and `npm run build` makes `dist/`.
+`npm test` runs the unit tests, `npm run e2e` the browser tests and `npm run build` makes `dist/`. The export tests read the video back with a recent ffmpeg: on your PATH, or set `FFMPEG` to its full path.
 
 ## Licences
 
