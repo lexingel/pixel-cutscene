@@ -1,0 +1,6 @@
+{
+  "voices": [
+    { "voice_id": "v_aria_01", "name": "Aria", "category": "premade", "labels": { "accent": "american" } },
+    { "voice_id": "v_old_02", "name": "Old Knight", "category": "professional" }
+  ]
+}

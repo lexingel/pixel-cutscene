@@ -1,0 +1,13 @@
+{
+ "credits": {
+  "type": "usd",
+  "usd": 4.2
+ },
+ "subscription": {
+  "type": "generations",
+  "status": "active",
+  "plan": "tier_1",
+  "generations": 450,
+  "total": 2000
+ }
+}

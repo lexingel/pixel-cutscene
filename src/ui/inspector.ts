@@ -1,0 +1,281 @@
+import { readyChars, type Kit } from "../core/kit";
+import { ACTIONS, KINDS } from "../core/timeline";
+import { elevenKey, voicesFor } from "./eleven";
+import type { CamKey, Timeline } from "../core/types";
+import type { Project } from "../core/project";
+import { pickTrack } from "./music";
+import { addAction, find, moveEntry, resizeEntry, setCamera, setField, snap, type EditResult } from "./timelineEditor";
+import { freePath } from "../core/cast";
+import { decode } from "./cast";
+import { toast } from "./dialogs";
+
+type Kind = "num" | "text" | "bool" | "select";
+type Field = { key: string; label: string; kind: Kind; options?: string[]; optional?: boolean };
+type Ctx = { kit: Kit; now: () => number; errors: string[]; kitChanged?: () => void; project?: Project };
+type Obj = Record<string, any>;
+
+const NUM = (key: string, label = key, optional = false): Field => ({ key, label, kind: "num", optional });
+const show = (v: unknown) => (typeof v === "number" ? String(Math.round(v * 1000) / 1000) : v === undefined ? "" : String(v));
+const assetIds = (kit: Kit, kinds: string[]) => Object.keys(kit.assets).filter((k) => kinds.includes(kit.assets[k].kind));
+
+function fields(tl: Timeline, id: string, kit: Kit): Field[] {
+  const at = find(tl, id)!;
+  const e = at.e;
+  switch (at.kind) {
+    case "root":
+      return [{ key: "name", label: "name", kind: "text" }, NUM("duration", "duration (s)"), NUM("closeup_scale", "close-up scale", true)];
+    case "shot":
+      return [
+        { key: "bg", label: "background", kind: "select", options: ["", ...assetIds(kit, ["bg", "backdrop"])], optional: true },
+        ...(e.type === "wide" ? [NUM("bg_scale", "bg scale")] : [{ key: "face", label: "face", kind: "text" as Kind }, { key: "expr", label: "expression", kind: "text" as Kind }]),
+        NUM("fade_in", "fade in (s)", true),
+        NUM("fade_out", "fade out (s)", true),
+      ];
+    case "actor":
+      return [
+        { key: "char", label: "character", kind: "select", options: readyChars(kit) },
+        NUM("x"), NUM("y"),
+        { key: "flip", label: "faces left", kind: "bool", optional: true },
+        NUM("appear", "appears at (s)", true),
+      ];
+    case "action": {
+      const anims = Object.keys(kit.chars[at.actor.char]?.anims ?? {}).map((a) => `anim:${a}`);
+      const walks = e.do === "walk" || e.do === "move";
+      return [
+        { key: "do", label: "action", kind: "select", options: [...ACTIONS, ...anims] },
+        NUM("t", "t (s)"),
+        NUM("dur", "dur (s)", true),
+        ...(walks ? [NUM("to.0", "to x"), NUM("to.1", "to y")] : []),
+      ];
+    }
+    case "fx":
+      return [{ key: "fx", label: "effect", kind: "text" }, NUM("t", "t (s)"), NUM("dur", "dur (s)", true), NUM("x"), NUM("y")];
+    case "audio":
+      return [
+        { key: "clip", label: "clip", kind: "text" },
+        { key: "kind", label: "kind", kind: "select", options: KINDS },
+        NUM("t", "t (s)"),
+        { key: "line", label: "line", kind: "text", optional: true },
+        ...(e.kind === "voice" ? [{ key: "speaker", label: "speaker", kind: "select" as Kind, options: ["", ...Object.keys(kit.chars)], optional: true }] : []),
+        NUM("vol_db", "volume (dB)", true),
+      ];
+  }
+}
+
+// One edit per field change; t and dur go through the snapping ops, `to.0`/`to.1` edit one half of to.
+function change(tl: Timeline, id: string, f: Field, raw: string | boolean): EditResult {
+  if (f.kind === "bool") return setField(tl, id, f.key, raw ? true : f.optional ? undefined : false);
+  const text = String(raw).trim();
+  if (text === "" && f.optional) return setField(tl, id, f.key, undefined);
+  if (f.kind !== "num") return setField(tl, id, f.key, text);
+  const n = Number(text);
+  if (text === "" || !Number.isFinite(n)) return { tl, error: `${f.label} needs a number.` };
+  if (f.key === "t") return moveEntry(tl, id, n);
+  if (f.key === "dur") return resizeEntry(tl, id, n);
+  if (f.key.startsWith("to.")) {
+    const to = [...((find(tl, id)!.e.to as number[]) ?? [0, 0])];
+    to[Number(f.key[3])] = n;
+    return setField(tl, id, "to", to);
+  }
+  return setField(tl, id, f.key, n);
+}
+
+const valueOf = (e: Obj, key: string) => (key.startsWith("to.") ? e.to?.[Number(key[3])] : e[key]);
+
+export function renderInspector(
+  host: HTMLElement, tl: Timeline, selected: string | null, ctx: Ctx,
+  apply: (r: EditResult, select?: string) => void, remove: (id: string) => void,
+): void {
+  const id = selected && find(tl, selected) ? selected : "(root)";
+  const at = find(tl, id)!;
+  const e = at.e;
+  const title = at.kind === "root" ? "Scene" : at.kind === "fx" ? "Effect" : at.kind[0].toUpperCase() + at.kind.slice(1);
+  host.innerHTML = `<header class="row between"><h2></h2><span class="small id"></span></header><div class="fields"></div>`;
+  host.querySelector("h2")!.textContent = title;
+  host.querySelector(".id")!.textContent = at.kind === "root" ? "" : id;
+  const box = host.querySelector<HTMLElement>(".fields")!;
+
+  for (const f of fields(tl, id, ctx.kit)) {
+    const lab = document.createElement("label");
+    lab.className = f.kind === "bool" ? "field check" : "field";
+    const name = Object.assign(document.createElement("span"), { textContent: f.label });
+    let input: HTMLInputElement | HTMLSelectElement;
+    const v = valueOf(e, f.key);
+    if (f.kind === "select") {
+      input = document.createElement("select");
+      const opts = f.options!.includes(show(v)) ? f.options! : [show(v), ...f.options!];
+      // a speaker no longer in the cast stays selectable as "(missing)" so the user can change it
+      const gone = (o: string) => f.key === "speaker" && o !== "" && !f.options!.includes(o);
+      input.append(...opts.map((o) => Object.assign(document.createElement("option"), { value: o, textContent: gone(o) ? `${o} (missing)` : o || "none" })));
+      input.value = show(v);
+    } else {
+      input = Object.assign(document.createElement("input"), { type: f.kind === "bool" ? "checkbox" : f.kind === "num" ? "number" : "text" });
+      if (f.kind === "bool") input.checked = !!v;
+      else input.value = show(v);
+      if (f.kind === "num") input.step = f.key === "t" || f.key === "dur" || f.key.startsWith("fade") ? String(1 / 30) : "1";
+      if (f.optional && f.kind !== "bool") input.placeholder = "none";
+    }
+    input.setAttribute("aria-label", f.label);
+    input.onchange = () => apply(change(tl, id, f, input instanceof HTMLInputElement && input.type === "checkbox" ? input.checked : input.value));
+    if (f.kind === "bool") lab.append(input, name);
+    else lab.append(name, input);
+    box.append(lab);
+  }
+
+  if (at.kind === "audio" && e.kind === "voice" && e.speaker && kitChar(ctx.kit, e.speaker)) box.append(voicePicker(ctx.kit, e.speaker, ctx.kitChanged));
+  if (at.kind === "audio" && e.kind === "music" && ctx.project) {
+    const p = ctx.project;
+    const b = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: "Pick from library" });
+    b.onclick = async () => ((await pickTrack(p, e.clip)) ? ctx.kitChanged?.() : undefined);
+    box.append(b);
+  }
+  if (at.kind === "shot" && ctx.project) box.append(bgUpload(ctx.project, tl, id, apply, ctx.kitChanged));
+  if (at.kind === "shot" && e.type === "wide") box.append(cameraKeys(tl, id, e.camera as CamKey[], ctx.now, apply));
+  if (at.kind === "actor") {
+    const b = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: "+ Action", title: "Adds an idle at the playhead; change it in its action box" });
+    b.onclick = () => {
+      const r = addAction(tl, id, { t: ctx.now(), do: "idle" });
+      apply(r, r.id);
+    };
+    box.append(b);
+  }
+  if (at.kind === "root") {
+    const todo = nextSteps(tl, ctx.kit);
+    if (todo.length) {
+      const ol = document.createElement("ol");
+      ol.className = "todo";
+      ol.append(...todo.map((x) => Object.assign(document.createElement("li"), { textContent: x })));
+      box.append(Object.assign(document.createElement("p"), { className: "small todo-head", textContent: "Next steps" }), ol);
+    }
+    const n = ctx.errors.length;
+    const note = Object.assign(document.createElement("p"), { className: n ? "hint err" : "hint" });
+    note.textContent = n
+      ? `${n} problem${n === 1 ? "" : "s"} in this timeline. First: ${ctx.errors[0]}`
+      : "Click a bar to edit it. Space plays, ← → move 1 s, Shift steps one frame.";
+    box.append(note);
+    return;
+  }
+  const foot = document.createElement("div");
+  foot.className = "row between foot";
+  foot.innerHTML = `<label class="field check"><input type="checkbox" /><span>Locked</span></label><button class="btn quiet danger" type="button">Delete</button>`;
+  const lock = foot.querySelector("input")!;
+  lock.checked = !!e.locked;
+  lock.title = "A locked entry is kept as it is when you redraft the scene";
+  lock.onchange = () => apply(setField(tl, id, "locked", lock.checked || undefined));
+  foot.querySelector("button")!.onclick = () => remove(id);
+  box.append(foot);
+}
+
+const kitChar = (kit: Kit, c: string) => kit.chars[c];
+
+// The speaking character's voice id: a pick-list when an ElevenLabs key is set, else a text box.
+function voicePicker(kit: Kit, char: string, changed?: () => void): HTMLElement {
+  const lab = document.createElement("label");
+  lab.className = "field";
+  const name = Object.assign(document.createElement("span"), { textContent: `voice for ${char}` });
+  const set = (v: string) => {
+    kit.chars[char].voice = v.trim() || undefined;
+    changed?.();
+  };
+  const cur = kit.chars[char].voice ?? "";
+  const key = elevenKey();
+  let input: HTMLInputElement | HTMLSelectElement;
+  if (key) {
+    const sel = document.createElement("select");
+    sel.append(...[["", "none"], ...(cur ? [[cur, cur]] : [])].map(([v, t]) => Object.assign(document.createElement("option"), { value: v, textContent: t })));
+    sel.value = cur;
+    voicesFor(key).then(
+      (vs) => {
+        sel.replaceChildren(...[{ id: "", name: "none" }, ...(vs.some((v) => v.id === cur) || !cur ? [] : [{ id: cur, name: cur }]), ...vs].map((v) => Object.assign(document.createElement("option"), { value: v.id, textContent: v.name })));
+        sel.value = cur;
+      },
+      () => {
+        const txt = Object.assign(document.createElement("input"), { type: "text", value: cur, placeholder: "ElevenLabs voice id" });
+        txt.setAttribute("aria-label", `voice for ${char}`);
+        txt.onchange = () => set(txt.value);
+        sel.replaceWith(txt);
+        lab.append(Object.assign(document.createElement("span"), { className: "small err", textContent: "Could not load voices. Type a voice id." }));
+      },
+    );
+    input = sel;
+  } else {
+    input = Object.assign(document.createElement("input"), { type: "text", value: cur, placeholder: "ElevenLabs voice id" });
+  }
+  input.setAttribute("aria-label", `voice for ${char}`);
+  input.onchange = () => set(input.value);
+  lab.append(name, input);
+  return lab;
+}
+
+// What an unfinished scene still lacks, in the words of the buttons that add it.
+function nextSteps(tl: Timeline, kit: Kit): string[] {
+  const out: string[] = [];
+  if (!tl.shots.some((s) => s.bg)) out.push("Click the shot bar in the Shots row, then Upload background.");
+  if (!tl.actors.length) out.push(readyChars(kit).length ? "Press + Actor to put a character in." : "Add a character in ② Cast, then press + Actor here.");
+  else if (!tl.actors.some((a) => a.actions.length)) out.push("Click an actor's name, then + Action to give it something to do.");
+  if (!tl.audio.length) out.push("Press + Music to pick a track (optional).");
+  if (out.length) out.push("When “Ready to export” shows beside Next: Export, press it.");
+  return out;
+}
+
+// The user's own PNG as this shot's background; a wide shot scales it up to cover the canvas.
+function bgUpload(p: Project, tl: Timeline, id: string, apply: (r: EditResult) => void, kitChanged?: () => void): HTMLElement {
+  const lab = Object.assign(document.createElement("label"), { className: "btn quiet", textContent: "Upload background" });
+  const inp = Object.assign(document.createElement("input"), { type: "file", accept: "image/png", hidden: true });
+  inp.onchange = async () => {
+    const f = inp.files?.[0];
+    inp.value = "";
+    if (!f) return;
+    let img;
+    try {
+      img = await decode(f);
+    } catch {
+      return toast(`Could not read ${f.name}. Use a PNG image.`, "error");
+    }
+    const name = f.name.replace(/\.[^.]*$/, "").trim() || "background";
+    let aid = name;
+    for (let n = 2; p.kit.assets[aid]; n++) aid = `${name}_${n}`;
+    const wide = find(tl, id)?.e.type === "wide";
+    const path = freePath(p, "bg/", `${aid}.png`);
+    p.files.set(path, f);
+    p.kit.assets[aid] = { approved: true, source: "user", kind: wide ? "bg" : "backdrop", path };
+    let r = setField(tl, id, "bg", aid);
+    if (wide && !r.error) r = setField(r.tl, id, "bg_scale", Math.max(1, Math.ceil(Math.max(p.canvas.W / img.w, p.canvas.H / img.h))));
+    apply(r);
+    kitChanged?.();
+  };
+  lab.append(inp);
+  return lab;
+}
+
+function cameraKeys(tl: Timeline, id: string, keys: CamKey[], now: () => number, apply: (r: EditResult) => void): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "cam";
+  wrap.innerHTML = `<div class="row between"><span class="small">Camera keys (t, x, y)</span><button class="btn quiet" type="button">+ Key at playhead</button></div>`;
+  const set = (next: CamKey[]) => apply(setCamera(tl, id, next));
+  keys.forEach((k, i) => {
+    const row = document.createElement("div");
+    row.className = "cam-key";
+    for (const c of ["t", "x", "y"] as const) {
+      const inp = Object.assign(document.createElement("input"), { type: "number", value: show(k[c]), step: c === "t" ? String(1 / 30) : "1" });
+      inp.setAttribute("aria-label", `camera key ${i + 1} ${c}`);
+      inp.onchange = () => {
+        const n = Number(inp.value);
+        if (inp.value.trim() === "" || !Number.isFinite(n)) return apply({ tl, error: "Camera keys need numbers." });
+        set(keys.map((x, j) => (j === i ? { ...x, [c]: n } : x)));
+      };
+      row.append(inp);
+    }
+    const del = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: "Remove" });
+    del.disabled = keys.length === 1;
+    del.onclick = () => set(keys.filter((_, j) => j !== i));
+    row.append(del);
+    wrap.append(row);
+  });
+  wrap.querySelector<HTMLButtonElement>(".row button")!.onclick = () => {
+    const last = keys[keys.length - 1] ?? { x: 0, y: 0 };
+    const at = snap(now());
+    set([...keys.filter((k) => Math.abs(k.t - at) > 1e-6), { t: at, x: last.x, y: last.y }]);
+  };
+  return wrap;
+}

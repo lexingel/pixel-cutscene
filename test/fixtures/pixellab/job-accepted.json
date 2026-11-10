@@ -1,0 +1,9 @@
+{
+ "usage": {
+  "type": "generations",
+  "usd": null,
+  "generations": 1
+ },
+ "background_job_id": "job_1",
+ "status": "processing"
+}

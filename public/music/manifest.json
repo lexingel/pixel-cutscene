@@ -1,0 +1,147 @@
+[
+ {
+  "id": "dungeon-ambience",
+  "title": "Dungeon Ambience",
+  "artist": "yd",
+  "license": "CC0-1.0",
+  "source_url": "https://opengameart.org/content/dungeon-ambience",
+  "file": "dungeon-ambience.ogg",
+  "seconds": 206.0,
+  "mood": [
+   "dread"
+  ]
+ },
+ {
+  "id": "loopable-dungeon-ambience",
+  "title": "Loopable Dungeon Ambience",
+  "artist": "JaggedStone",
+  "license": "CC0-1.0",
+  "source_url": "https://opengameart.org/content/loopable-dungeon-ambience",
+  "file": "loopable-dungeon-ambience.ogg",
+  "seconds": 94.3,
+  "mood": [
+   "dread"
+  ]
+ },
+ {
+  "id": "insistent",
+  "title": "Insistent",
+  "artist": "yd",
+  "license": "CC0-1.0",
+  "source_url": "https://opengameart.org/content/insistent-background-loop",
+  "file": "insistent.ogg",
+  "seconds": 128.7,
+  "mood": [
+   "dread"
+  ]
+ },
+ {
+  "id": "forest-ambience",
+  "title": "Forest Ambience",
+  "artist": "TinyWorlds",
+  "license": "CC0-1.0",
+  "source_url": "https://opengameart.org/content/forest-ambience",
+  "file": "forest-ambience.ogg",
+  "seconds": 44.7,
+  "mood": [
+   "calm"
+  ]
+ },
+ {
+  "id": "calm-loop",
+  "title": "Calm Loop",
+  "artist": "wipics",
+  "license": "CC0-1.0",
+  "source_url": "https://opengameart.org/content/calm-loop",
+  "file": "calm-loop.ogg",
+  "seconds": 19.4,
+  "mood": [
+   "calm"
+  ]
+ },
+ {
+  "id": "old-tower-inn",
+  "title": "The Old Tower Inn",
+  "artist": "RandomMind",
+  "license": "CC0-1.0",
+  "source_url": "https://opengameart.org/content/medieval-the-old-tower-inn",
+  "file": "old-tower-inn.ogg",
+  "seconds": 105.5,
+  "mood": [
+   "calm"
+  ]
+ },
+ {
+  "id": "8bit-battle-loop",
+  "title": "8-Bit Battle Loop",
+  "artist": "Wolfgang_",
+  "license": "CC0-1.0",
+  "source_url": "https://opengameart.org/content/8-bit-battle-loop",
+  "file": "8bit-battle-loop.ogg",
+  "seconds": 26.6,
+  "mood": [
+   "battle"
+  ]
+ },
+ {
+  "id": "mountain-battle",
+  "title": "Mountain Battle Chiptune",
+  "artist": "Magnesus",
+  "license": "CC0-1.0",
+  "source_url": "https://opengameart.org/content/mountain-battle-chiptune",
+  "file": "mountain-battle.ogg",
+  "seconds": 27.7,
+  "mood": [
+   "battle"
+  ]
+ },
+ {
+  "id": "charge",
+  "title": "Charge!",
+  "artist": "Centurion_of_war",
+  "license": "CC0-1.0",
+  "source_url": "https://opengameart.org/content/charge",
+  "file": "charge.ogg",
+  "seconds": 32.0,
+  "mood": [
+   "battle"
+  ]
+ },
+ {
+  "id": "mystical-town",
+  "title": "Mystical Town Theme",
+  "artist": "symphony",
+  "license": "CC0-1.0",
+  "source_url": "https://opengameart.org/content/mystical-rpg-maker-town-theme",
+  "file": "mystical-town.ogg",
+  "seconds": 73.2,
+  "mood": [
+   "wonder"
+  ]
+ },
+ {
+  "id": "mystery",
+  "title": "Mystery",
+  "artist": "PolygonDan",
+  "license": "CC0-1.0",
+  "source_url": "https://opengameart.org/content/cc0-mystery",
+  "file": "mystery.ogg",
+  "seconds": 38.1,
+  "mood": [
+   "wonder",
+   "dread"
+  ]
+ },
+ {
+  "id": "ethereal-loop-remix",
+  "title": "Ethereal Loop Remix",
+  "artist": "wipics",
+  "license": "CC0-1.0",
+  "source_url": "https://opengameart.org/content/ethereal-loop-remix",
+  "file": "ethereal-loop-remix.ogg",
+  "seconds": 72.7,
+  "mood": [
+   "wonder"
+  ]
+ }
+]
