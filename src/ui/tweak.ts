@@ -5,7 +5,10 @@ import { actorName, fxName, labelOf, shotName } from "../core/labels";
 import { moveLabel } from "../core/moves";
 import { missingReport } from "../core/missing";
 import type { Project } from "../core/project";
-import { renderFrame } from "../core/render";
+import { frameZoom, fxEnd, newFxDur, renderFrame } from "../core/render";
+import { zoomFrame } from "../core/raster";
+import { pose, shotAt } from "../core/acting";
+import { charFrames } from "../core/frames";
 import { validateTimeline } from "../core/timeline";
 import type { Actor, Timeline } from "../core/types";
 import { decodeAudio } from "../export/audioMix";
@@ -22,7 +25,7 @@ import { renderInspector } from "./inspector";
 import { emptyTimeline } from "./scene";
 import type { Step } from "./steps";
 import {
-  FPS, History, addAction, addEntry, deleteEntry, find, moveEntry, moveShotEdge, newId, resizeEntry, setField, snap, splitShot, type EditResult,
+  FPS, History, addAction, addEntry, deleteEntry, find, moveEntry, moveShotEdge, newId, resizeEntry, setField, snap, splitShot, insertShot, panShot, transition, type EditResult,
 } from "./timelineEditor";
 
 const ACTIONS_MENU = ["idle", "walk", "move", "look_around", "startle", "hurt", "dust"];
@@ -65,7 +68,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       <button class="btn quiet" type="button" data-act="undo" title="Undo (Ctrl+Z)">Undo</button>
       <button class="btn quiet" type="button" data-act="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
       <span class="grow"></span>
-      <button class="btn quiet" type="button" data-act="split" title="Split the shot at the playhead">Split shot</button>
+      <button class="btn quiet" type="button" data-act="shot" aria-haspopup="menu" title="Add a shot or a transition at the playhead">+ Shot ▾</button>
       <span class="status" data-testid="status"></span>
       <button class="btn primary" type="button" data-act="next">Next: Export</button>
     </div>
@@ -134,12 +137,15 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     if (step) { e.preventDefault(); e.stopPropagation(); setDrawer($(".drawer").getBoundingClientRect().width + step); }
   };
 
+  const zoomed = new Uint8ClampedArray(W * H * 4); // preview zoom is nearest-neighbour at canvas size (approximate); the export zooms in whole output pixels
   function paint() {
     const T = tl();
     t = Math.min(Math.max(t, 0), T.duration);
     if (T.shots.length) renderFrame({ tl: T, kit: p.kit, img: (k) => imgs.get(k) ?? null, draft: false, W, H }, t, frame);
     else frame.px.fill(0);
-    g.putImageData(new ImageData(frame.px, W, H), 0, 0);
+    const z = T.shots.length ? frameZoom(T, t) : null;
+    if (z) zoomFrame(frame, z.z, z.x, z.y, 1, zoomed);
+    g.putImageData(new ImageData(z ? zoomed : frame.px, W, H), 0, 0);
     $("[data-testid=timecode]").innerHTML = `<b>${t.toFixed(2)}</b> / ${T.duration.toFixed(2)} s <span class="muted">· frame ${Math.round(t * FPS)}</span>`;
     tracks.style.setProperty("--p", String(t / T.duration));
     playBtn.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
@@ -251,11 +257,48 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   $<HTMLButtonElement>("[data-act=undo]").onclick = () => travel(hist.undo(tl()));
   $<HTMLButtonElement>("[data-act=redo]").onclick = () => travel(hist.redo(tl()));
   $<HTMLButtonElement>("[data-act=next]").onclick = () => go(4);
-  $<HTMLButtonElement>("[data-act=split]").onclick = () => {
-    const s = tl().shots.find((x) => t > x.start && t < x.end);
-    if (!s) return toast("Move the playhead inside a shot to split it.", "error");
-    const r = splitShot(tl(), s.id, t);
-    commit(r, r.id);
+  // ---- + Shot: cuts, close-ups, pans, zooms and transitions, all at the playhead
+  const shotBtn = $<HTMLButtonElement>("[data-act=shot]");
+  shotBtn.onclick = () => {
+    const T = tl(), at = snap(t), cam = camNow(T, at);
+    const frames = charFrames(p.kit, imgOf, false, has);
+    const wideOnly = (f: () => EditResult) => () => (cam ? f() : { tl: T, error: "Move the playhead to a wide shot first (close-ups have no camera)." });
+    const items: [string, () => EditResult][] = [];
+    items.push(["Cut here", () => {
+      const s = T.shots.find((x) => at > x.start && at < x.end);
+      return s ? splitShot(T, s.id, at) : { tl: T, error: "Move the playhead inside a shot to cut it." };
+    }]);
+    // a close-up is a zoom on the character, sized so they fill most of the frame's height
+    const focusOn = (a: Actor) => {
+      const q = pose(a, at, frames);
+      if (!q?.img || !cam) return null;
+      return { x: q.drawX + q.img.w / 2 - cam.x, y: q.drawY + q.img.h * 0.35 - cam.y, z: Math.max(2, Math.min(4, Math.floor((H * 0.9) / q.img.h))) };
+    };
+    for (const a of T.actors) {
+      const f = focusOn(a);
+      if (f) items.push([`Close-up on ${actorName(T, a.id)}`, () => insertShot(T, at, 2, { zoom: { from: f.z, to: f.z, x: Math.round(f.x), y: Math.round(f.y) } })]);
+    }
+    for (const [face, exprs] of Object.entries(p.kit.faces))
+      for (const expr of Object.keys(exprs)) items.push([`Close-up portrait: ${face} · ${expr}`, () => insertShot(T, at, 2, { type: "closeup", face, expr })]);
+    const sh = T.shots.length ? shotAt(T, at) : null;
+    const bg = sh?.bg ? imgs.get(p.kit.assets[sh.bg]?.path ?? "") : undefined;
+    const k = sh?.type === "wide" ? (sh.bg_scale ?? 1) : 1;
+    const extra = { x: bg ? bg.w * k - W : 0, y: bg ? bg.h * k - H : 0 };
+    for (const d of ["left", "right", "up", "down"] as const) items.push([`Pan ${d}`, wideOnly(() => panShot(T, at, d, extra))]);
+    const sel = T.actors.find((a) => a.id === selected);
+    const zf = (sel && focusOn(sel)) || { x: W / 2, y: H / 2 };
+    const on = sel ? ` on ${actorName(T, sel.id)}` : "";
+    items.push([`Zoom in${on}`, wideOnly(() => insertShot(T, at, undefined, { zoom: { from: 1, to: 2, x: Math.round(zf.x), y: Math.round(zf.y) } }))]);
+    items.push([`Zoom out${on}`, wideOnly(() => insertShot(T, at, undefined, { zoom: { from: 2, to: 1, x: Math.round(zf.x), y: Math.round(zf.y) } }))]);
+    items.push(["Fade in from black", () => transition(T, at, "fade_in")]);
+    items.push(["Fade out to black", () => transition(T, at, "fade_out")]);
+    items.push(["White flash", () => transition(T, at, "flash")]);
+    items.push(["Shake", wideOnly(() => transition(T, at, "shake"))]);
+    popMenu(shotBtn, "Shots and transitions", items.map(([label, run]) => [label, () => {
+      const r = run();
+      if (r.error) return toast(r.error, "error");
+      commit(r, r.id);
+    }]));
   };
   // ---- the library drawer: click/Enter adds at the playhead, a drop adds where it landed.
   // One add at a time (a bake or a download may take a moment), so ids never collide.
@@ -275,7 +318,9 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     if (it.kind === "fx") {
       const had = new Set(Object.keys(p.kit.assets));
       const fx = await addLibraryFx(p, it.id);
-      const r = addEntry(tl(), "fx", { t: when, fx, x: at.x ?? Math.round(W / 2), y: at.y ?? Math.round(H / 2) }, "f");
+      const meta = p.kit.assets[fx]?.fx;
+      const dur = meta && newFxDur(meta);
+      const r = addEntry(tl(), "fx", { t: when, fx, x: at.x ?? Math.round(W / 2), y: at.y ?? Math.round(H / 2), ...(dur ? { dur } : {}) }, "f");
       if (r.error && !had.has(fx)) {
         const a = p.kit.assets[fx]; // baked just now for this add: take it back
         delete p.kit.assets[fx];
@@ -496,7 +541,11 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
         `data-actor="${esc(a.id)}" title="Double-click the lane to add an action"`,
         a.id === selected,
       )).join("");
-    const fx = T.fx.map((f) => bar(f.id, fxName(p.kit, f.fx), f.t, (f as { dur?: number }).dur, { grip: (f as { dur?: number }).dur !== undefined, warn: warn.has(f.id), locked: f.locked, cls: "fx" })).join("");
+    const fx = T.fx.map((f) => {
+      const meta = p.kit.assets[f.fx]?.fx;
+      const len = meta ? fxEnd(f, meta, D) - f.t : f.dur; // the bar covers exactly what plays
+      return bar(f.id, fxName(p.kit, f.fx), f.t, len, { grip: true, warn: warn.has(f.id), locked: f.locked, cls: "fx" });
+    }).join("");
     const audio = T.audio.map((s) => bar(s.id, s.line ? `${s.clip} “${s.line}”` : s.clip, s.t, bufs.get(s.clip)?.duration, { warn: warn.has(s.id), locked: s.locked, cls: s.kind })).join("");
     tracks.innerHTML = `
       ${row("", ticks, `data-ruler="1" title="Click or drag to move the playhead"`, false, "ruler")}
@@ -625,6 +674,36 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       else if (e.key === "ArrowDown") btns[(i + 1) % btns.length].focus();
       else if (e.key === "ArrowUp") btns[(i - 1 + btns.length) % btns.length].focus();
       else if (e.key === "Tab") close();
+      else return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    document.body.append(menu);
+    document.addEventListener("pointerdown", away, true);
+    menu.querySelector("button")!.focus();
+  }
+  /** A small menu under anchor; Escape, Tab or a click outside closes it and focus goes back to anchor. */
+  function popMenu(anchor: HTMLElement, label: string, items: [string, () => void][]) {
+    const menu = Object.assign(document.createElement("div"), { className: "move-menu", role: "menu" });
+    menu.setAttribute("aria-label", label);
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = `${Math.min(r.left, innerWidth - 240)}px`;
+    menu.style.bottom = `${innerHeight - r.top + 4}px`; // opens upwards: the timeline is below the button
+    menu.style.maxHeight = `${r.top - 12}px`;
+    menu.style.overflowY = "auto";
+    const close = () => (menu.remove(), document.removeEventListener("pointerdown", away, true), anchor.focus());
+    const away = (e: Event) => menu.contains(e.target as Node) || (menu.remove(), document.removeEventListener("pointerdown", away, true));
+    for (const [text, run] of items) {
+      const it = Object.assign(document.createElement("button"), { type: "button", role: "menuitem", textContent: text });
+      it.onclick = () => (close(), dragging || run());
+      menu.append(it);
+    }
+    menu.onkeydown = (e) => {
+      const btns = [...menu.querySelectorAll<HTMLButtonElement>("button")];
+      const i = btns.indexOf(document.activeElement as HTMLButtonElement);
+      if (e.key === "Escape" || e.key === "Tab") close();
+      else if (e.key === "ArrowDown") btns[(i + 1) % btns.length].focus();
+      else if (e.key === "ArrowUp") btns[(i - 1 + btns.length) % btns.length].focus();
       else return;
       e.preventDefault();
       e.stopPropagation();

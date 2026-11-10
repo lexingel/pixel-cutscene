@@ -2,7 +2,8 @@ import { GIFEncoder, applyPalette, quantize } from "gifenc";
 import type { Img } from "../core/kit";
 import { missingReport } from "../core/missing";
 import type { Project } from "../core/project";
-import { renderFrame } from "../core/render";
+import { frameZoom, renderFrame } from "../core/render";
+import { zoomFrame } from "../core/raster";
 import { decode } from "../ui/cast";
 import { MIX_RATE, decodeAudio, mixAudio } from "./audioMix";
 import { openSink, pickCodec, type Container } from "./encode";
@@ -87,13 +88,20 @@ export async function exportVideo(p: Project, opts: ExportOpts, codec?: Containe
   const input = { tl, kit: p.kit, img: (path: string) => imgs.get(path) ?? null, draft: opts.draft, W, H };
   const native: Img = { w: W, h: H, px: new Uint8ClampedArray(W * H * 4) };
   const big = k === 1 ? native.px : new Uint8ClampedArray(W * k * H * k * 4);
+  const zoomed = new Uint8ClampedArray(W * k * H * k * 4);
+  // the frame at time t, zoomed if its shot zooms; at k output pixels per pixel
+  const frameAt = (t: number, kk: number) => {
+    renderFrame(input, t, native);
+    const z = frameZoom(input.tl, t);
+    if (z) return zoomFrame(native, z.z, z.x, z.y, kk, zoomed), zoomed;
+    return kk === 1 ? native.px : upscale(native, kk, big);
+  };
 
   if (kind === "loop-gif") {
     const gif = GIFEncoder();
     for (let i = 0; i < n; i++) {
       if (opts.signal.aborted) throw abort();
-      renderFrame(input, a + i / fps, native);
-      const { palette, index } = indexed(native.px);
+      const { palette, index } = indexed(frameAt(a + i / fps, 1).slice(0, W * H * 4));
       gif.writeFrame(index, W, H, { palette, delay: 1000 / fps });
       opts.onProgress((i + 1) / n);
       await tick();
@@ -115,8 +123,7 @@ export async function exportVideo(p: Project, opts: ExportOpts, codec?: Containe
     }
     for (let i = 0; i < n; i++) {
       if (opts.signal.aborted) throw abort();
-      renderFrame(input, a + i / fps, native);
-      await sink.frame(k === 1 ? native.px : upscale(native, k, big), i, i % (2 * fps) === 0);
+      await sink.frame(frameAt(a + i / fps, k), i, i % (2 * fps) === 0);
       opts.onProgress((i + 1) / n);
       await tick();
     }

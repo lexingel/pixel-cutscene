@@ -18,7 +18,12 @@ export const shotNumber = (tl: Timeline, id: string): string => `Shot ${tl.shots
 /** "Shot 2 · wide" or "Shot 2 · close-up ann". */
 export function shotName(tl: Timeline, id: string): string {
   const s = tl.shots.find((x) => x.id === id);
-  return s ? `${shotNumber(tl, id)} · ${s.type === "closeup" ? `close-up ${s.face}` : "wide"}` : id;
+  if (!s) return id;
+  const moves = s.type === "wide" && s.camera.some((k) => k.x !== s.camera[0].x || k.y !== s.camera[0].y);
+  const kind = s.type === "closeup" ? `close-up ${s.face}`
+    : s.zoom ? (s.zoom.from === s.zoom.to ? "close-up" : s.zoom.to > s.zoom.from ? "zoom in" : "zoom out")
+    : moves ? "pan" : "wide";
+  return `${shotNumber(tl, id)} · ${kind}`;
 }
 
 /** "fire breath" for a library effect (aimed copies included), else the asset's own name. */

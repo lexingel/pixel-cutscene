@@ -265,3 +265,18 @@ test("choosing Breathe fire in the inspector adds the flame too, in one undo ste
   await expect(page.locator(".clip.fx")).toHaveCount(0);
   await expect(page.getByLabel("action", { exact: true })).toHaveValue("walk");
 });
+
+test("tweak: + Shot adds a close-up and a white flash at the playhead", async ({ page }) => {
+  await openFixture(page);
+  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await expect(page.getByTestId("preview")).toHaveAttribute("data-ready", "1");
+  await page.keyboard.press("ArrowRight");
+  await page.getByRole("button", { name: /\+ Shot/ }).click();
+  const closeUp = page.getByRole("menuitem", { name: /^Close-up on / }).first();
+  await expect(closeUp).toBeVisible();
+  await closeUp.click();
+  await expect(page.locator(".clip.shot", { hasText: "close-up" })).toHaveCount(1);
+  await page.getByRole("button", { name: /\+ Shot/ }).click();
+  await page.getByRole("menuitem", { name: "White flash" }).click();
+  await expect(page.getByLabel("white flash (s)")).toHaveValue("0.3");
+});

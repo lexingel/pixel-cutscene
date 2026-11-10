@@ -9,9 +9,13 @@ interface ShotBase {
   bg?: string;
   fade_in?: number;
   fade_out?: number;
+  flash?: number; // seconds of white flash at the shot's start
+  shake?: number; // seconds of camera shake at the shot's start (wide shots)
   locked?: boolean;
 }
-export interface WideShot extends ShotBase { type: "wide"; camera: CamKey[]; bg_scale: number }
+/** Zoom eased from `from` to `to` across the shot, centred on (x, y) in frame pixels as far as the frame allows. */
+export interface Zoom { from: number; to: number; x: number; y: number }
+export interface WideShot extends ShotBase { type: "wide"; camera: CamKey[]; bg_scale: number; zoom?: Zoom }
 export interface CloseupShot extends ShotBase { type: "closeup"; face: string; expr: string }
 export type Shot = WideShot | CloseupShot;
 

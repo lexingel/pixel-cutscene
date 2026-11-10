@@ -4,7 +4,7 @@ import { crumble, hashString } from "./dust";
 import { charFrames } from "./frames";
 import { assetStatus, faceStatus, type Img, type Kit } from "./kit";
 import { blit, crop, fade, fill } from "./raster";
-import type { FxEntry, Timeline } from "./types";
+import type { FxEntry, Shot, Timeline } from "./types";
 
 export type RenderInput = {
   tl: Timeline;
@@ -87,6 +87,12 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
     }
   } else {
     const cam = camAt(shot.camera, t);
+    const into = t - shot.start, sk = shot.shake ?? 0;
+    if (into < sk) { // a quick tremor that dies away; a pure function of t
+      const a = 3 * (1 - into / sk);
+      cam.x += round(Math.sin(into * 71) * a);
+      cam.y += round(Math.cos(into * 53) * a * 0.6);
+    }
     const bg = assetImg(shot.bg ?? "");
     if (bg) blit(out, bg, -cam.x, -cam.y, shot.bg_scale ?? 1);
 
@@ -112,8 +118,32 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
   const aIn = (shot.fade_in ?? 0) > 0 ? 1 - into / shot.fade_in! : 0;
   const aOut = (shot.fade_out ?? 0) > 0 ? 1 - left / shot.fade_out! : 0;
   fade(out, Math.min(Math.max(aIn, aOut, 0), 1));
+  const aFlash = (shot.flash ?? 0) > 0 ? 1 - into / shot.flash! : 0;
+  if (aFlash > 0) for (let j = 0; j < out.px.length; j += 4) for (let c = 0; c < 3; c++) out.px[j + c] += (255 - out.px[j + c]) * aFlash;
   if (draft) watermark(out);
 }
+
+/** The zoom at t in this shot (1 when it has none). */
+export function zoomAt(s: Shot, t: number): number {
+  if (s.type !== "wide" || !s.zoom) return 1;
+  const u = Math.min(Math.max((t - s.start) / Math.max(s.end - s.start, 0.0001), 0), 1);
+  return s.zoom.from + (s.zoom.to - s.zoom.from) * u * u * (3 - 2 * u);
+}
+/** What zoomFrame needs for the frame at t, or null when the shot is not zoomed. */
+export function frameZoom(tl: Timeline, t: number): { z: number; x: number; y: number } | null {
+  if (!tl.shots.length) return null;
+  const s = shotAt(tl, Math.min(Math.max(t, 0), tl.duration));
+  const z = zoomAt(s, t);
+  return s.type === "wide" && s.zoom && z !== 1 ? { z, x: s.zoom.x, y: s.zoom.y } : null;
+}
+
+type FxMeta = NonNullable<Kit["assets"][string]["fx"]>;
+/** A looping effect added from the library lasts this long until the user drags its end. */
+export const LOOP_FX_DUR = 2;
+export const newFxDur = (meta: FxMeta): number | undefined => (meta.loop ? LOOP_FX_DUR : undefined);
+/** When an effect stops showing: its set duration, else a one-shot's last frame, else (an older loop) the scene's end. */
+export const fxEnd = (f: { t: number; dur?: number }, meta: FxMeta, sceneEnd: number): number =>
+  f.dur !== undefined ? f.t + f.dur : meta.loop ? sceneEnd : f.t + meta.frames / (meta.fps || ANIM_FPS);
 
 function drawFx(
   p: RenderInput, f: FxLive, t: number, cam: { x: number; y: number }, out: Img,

@@ -32,6 +32,8 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
         ...(e.type === "wide" ? [NUM("bg_scale", "bg scale")] : [{ key: "face", label: "face", kind: "text" as Kind }, { key: "expr", label: "expression", kind: "text" as Kind }]),
         NUM("fade_in", "fade in (s)", true),
         NUM("fade_out", "fade out (s)", true),
+        NUM("flash", "white flash (s)", true),
+        ...(e.type === "wide" ? [NUM("shake", "shake (s)", true)] : []),
       ];
     case "actor":
       return [
@@ -119,7 +121,7 @@ export function renderInspector(
       input = Object.assign(document.createElement("input"), { type: f.kind === "bool" ? "checkbox" : f.kind === "num" ? "number" : "text" });
       if (f.kind === "bool") input.checked = !!v;
       else input.value = show(v);
-      if (f.kind === "num") input.step = f.key === "t" || f.key === "dur" || f.key.startsWith("fade") ? String(1 / 30) : "1";
+      if (f.kind === "num") input.step = f.key === "t" || f.key === "dur" || f.key.startsWith("fade") || f.key === "flash" || f.key === "shake" ? String(1 / 30) : "1";
       if (f.optional && f.kind !== "bool") input.placeholder = "none";
     }
     input.setAttribute("aria-label", f.label);

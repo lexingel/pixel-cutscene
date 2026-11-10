@@ -55,3 +55,22 @@ export function crop(img: Img, x: number, y: number, w: number, h: number): Img 
   }
   return out;
 }
+
+/**
+ * src zoomed by z around (fx, fy), written at k output pixels per pixel into out (src.w*k x src.h*k).
+ * With k > 1 every art pixel becomes a whole number of output pixels (z is rounded to steps of 1/k);
+ * the view is pulled in so it never shows past the picture's edges.
+ */
+export function zoomFrame(src: Img, z: number, fx: number, fy: number, k: number, out: Uint8ClampedArray): void {
+  const P = k > 1 ? Math.max(k, Math.round(k * z)) : Math.max(1, z); // output pixels per art pixel
+  const W = src.w * k, H = src.h * k;
+  const cl = (c: number, n: number) => { const half = (n * k) / (2 * P); return Math.min(Math.max(c, half), n - half); };
+  const cx = cl(fx, src.w), cy = cl(fy, src.h);
+  const s = new Uint32Array(src.px.buffer, src.px.byteOffset, src.w * src.h);
+  const d = new Uint32Array(out.buffer, out.byteOffset, W * H);
+  const col = Array.from({ length: W }, (_, X) => Math.min(src.w - 1, Math.max(0, Math.floor(cx + (X + 0.5 - W / 2) / P))));
+  for (let Y = 0; Y < H; Y++) {
+    const sy = Math.min(src.h - 1, Math.max(0, Math.floor(cy + (Y + 0.5 - H / 2) / P)));
+    for (let X = 0; X < W; X++) d[Y * W + X] = s[sy * src.w + col[X]];
+  }
+}

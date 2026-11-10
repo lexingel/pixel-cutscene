@@ -1,5 +1,6 @@
 import { validateTimeline } from "../core/timeline";
-import { pose } from "../core/acting";
+import { pose, shotAt } from "../core/acting";
+import { camAt } from "../core/cam";
 import { DUST_DUR } from "../core/moves";
 import type { Action, CamKey, Shot, Timeline } from "../core/types";
 
@@ -108,6 +109,8 @@ export const splitShot = (tl: Timeline, id: string, t: number): EditResult => {
     // camera keys are in scene time, so both halves keep the whole list and the pan runs on across the cut
     const half = { ...structuredClone(at.e), id: nid, start: s } as Shot;
     delete half.locked;
+    delete half.flash; // flash and shake belong to the shot's start
+    delete half.shake;
     delete half.fade_in; // a cut, not a fade: the first half keeps the fade-in, the second the fade-out
     delete at.e.fade_out;
     at.e.end = s;
@@ -115,6 +118,50 @@ export const splitShot = (tl: Timeline, id: string, t: number): EditResult => {
   });
   return r.error ? r : { ...r, id: nid };
 };
+
+/** A new shot at t for len seconds (or to the end of the shot under t), shaped by patch; the old shot carries on after it. */
+export function insertShot(tl: Timeline, t: number, len: number | undefined, patch: Obj): EditResult {
+  if (!tl.shots.length) return { tl, error: "Add a shot first." };
+  const s0 = shotAt(tl, t), a = snap(t);
+  let cur = tl, id = s0.id;
+  if (a > s0.start + 1e-6) {
+    const r = splitShot(cur, id, a);
+    if (r.error) return r;
+    [cur, id] = [r.tl, r.id!];
+  }
+  if (len !== undefined && a + len < s0.end - 1e-6) {
+    const r = splitShot(cur, id, a + len);
+    if (r.error) return r;
+    cur = r.tl;
+  }
+  const r = edit(cur, id, (_c, at) => {
+    const e = at.e;
+    if (patch.type === "closeup") ["camera", "bg_scale", "zoom"].forEach((k) => delete e[k]);
+    Object.assign(e, patch);
+  });
+  return r.error ? r : { ...r, id };
+}
+
+export type PanDir = "left" | "right" | "up" | "down";
+/** A shot from t to the end of the shot under t whose camera slides as far as the background reaches that way (extra = how much bigger than the frame it is). */
+export function panShot(tl: Timeline, t: number, dir: PanDir, extra: { x: number; y: number }): EditResult {
+  const s0 = tl.shots.length ? shotAt(tl, t) : null;
+  if (!s0 || s0.type !== "wide") return { tl, error: "Move the playhead to a wide shot to pan." };
+  const a = snap(t), c = camAt(s0.camera, a);
+  const room = { left: c.x, right: extra.x - c.x, up: c.y, down: extra.y - c.y }[dir];
+  if (room < 1) return { tl, error: `The background reaches no further ${dir} here, so there is nothing to pan to. Raise its bg scale to make it bigger than the frame.` };
+  const d = { left: [-room, 0], right: [room, 0], up: [0, -room], down: [0, room] }[dir];
+  return insertShot(tl, a, undefined, { camera: [{ t: a, x: c.x, y: c.y }, { t: s0.end, x: c.x + d[0], y: c.y + d[1] }] });
+}
+
+export type Transition = "fade_in" | "fade_out" | "flash" | "shake";
+const TRANSITION_LEN: Record<Transition, number> = { fade_in: 0.5, fade_out: 0.5, flash: 0.3, shake: 0.5 };
+/** Gives the shot under t a fade in or out, a white flash or a shake. */
+export function transition(tl: Timeline, t: number, kind: Transition): EditResult {
+  if (!tl.shots.length) return { tl, error: "Add a shot first." };
+  const s = shotAt(tl, t);
+  return { ...setField(tl, s.id, kind, Math.min(TRANSITION_LEN[kind], s.end - s.start)), id: s.id };
+}
 
 export const deleteEntry = (tl: Timeline, id: string): EditResult =>
   edit(tl, id, (c, at) => {

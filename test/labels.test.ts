@@ -36,6 +36,14 @@ describe("labels", () => {
     expect(shotName(tl, "s1")).toBe("Shot 1 · wide");
     expect(shotName(tl, "s9")).toBe("Shot 2 · close-up ann");
   });
+  test("shot_names_say_what_the_camera_does", () => {
+    const wide = { id: "s1", type: "wide", start: 0, end: 2, bg_scale: 1, camera: [{ t: 0, x: 0, y: 0 }] };
+    const named = (patch: object) => shotName({ ...tl, shots: [{ ...wide, ...patch }] } as unknown as Timeline, "s1");
+    expect(named({ zoom: { from: 3, to: 3, x: 0, y: 0 } })).toBe("Shot 1 · close-up");
+    expect(named({ zoom: { from: 1, to: 2, x: 0, y: 0 } })).toBe("Shot 1 · zoom in");
+    expect(named({ zoom: { from: 2, to: 1, x: 0, y: 0 } })).toBe("Shot 1 · zoom out");
+    expect(named({ camera: [{ t: 0, x: 0, y: 0 }, { t: 2, x: 40, y: 0 }] })).toBe("Shot 1 · pan");
+  });
   test("labels_never_show_ids", () => {
     expect(labelOf(tl, kit, "a7")).toBe("dragon · Breathe fire");
     expect(labelOf(tl, kit, "a8")).toBe("hero 2 · Turn to dust");
