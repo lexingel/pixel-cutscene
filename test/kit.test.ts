@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import miniText from "../../tests/fixtures/mini.json?raw";
+import miniText from "./fixtures/mini.json?raw";
 import { animStatus, faceStatus, assetStatus, type Kit } from "../src/core/kit";
 import { missingReport, NEEDS } from "../src/core/missing";
 import type { Timeline } from "../src/core/types";

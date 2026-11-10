@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import miniText from "../../tests/fixtures/mini.json?raw";
+import miniText from "./fixtures/mini.json?raw";
 import { bakeFx, renderFxFrames } from "../src/core/fxBake";
 import type { Img, Kit } from "../src/core/kit";
 import { blit } from "../src/core/raster";

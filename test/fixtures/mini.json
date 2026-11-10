@@ -1,0 +1,10 @@
+{"name": "mini", "duration": 8.0, "kit": "tests/fixtures/kit_mini.json", "closeup_scale": 3,
+ "shots":  [{"id": "s1", "start": 0, "end": 6, "type": "wide", "bg": "rift_vista",
+             "camera": [{"t": 0, "x": 0, "y": 0}, {"t": 6, "x": 160, "y": 0}]},
+            {"id": "s2", "start": 6, "end": 8, "type": "closeup", "face": "warrior", "expr": "neutral", "bg": "warrior_realm"}],
+ "actors": [{"id": "warrior", "char": "legend_warrior", "x": -60, "y": 250, "flip": false,
+             "actions": [{"id": "a1", "t": 0, "do": "walk", "to": [120, 250], "dur": 3},
+                         {"id": "a2", "t": 3, "do": "look_around", "dur": 2}]}],
+ "fx":     [{"id": "f1", "t": 2, "fx": "heal_fx", "x": 200, "y": 200}],
+ "audio":  [{"id": "m1", "t": 0, "clip": "music_rift", "kind": "music", "vol_db": -6},
+            {"id": "v1", "t": 7, "clip": "warrior_line", "kind": "voice", "line": "...what is this place?"}]}

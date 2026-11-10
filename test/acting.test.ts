@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import miniText from "../../tests/fixtures/mini.json?raw";
+import miniText from "./fixtures/mini.json?raw";
 import { ANIM_FPS, pose, shotAt } from "../src/core/acting";
 import { activeAudio } from "../src/core/audioPlan";
 import { camAt } from "../src/core/cam";

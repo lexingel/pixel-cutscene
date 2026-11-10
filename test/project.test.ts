@@ -11,7 +11,7 @@ import { expect, test, vi } from "vitest";
 import { fromZip, newProject, toZip, type Project } from "../src/core/project";
 import { missingReport } from "../src/core/missing";
 import { parseTimeline } from "../src/core/timeline";
-import miniText from "../../tests/fixtures/mini.json?raw";
+import miniText from "./fixtures/mini.json?raw";
 
 const bytes = async (b: Blob) => new Uint8Array(await b.arrayBuffer());
 const sample = (): Project => {

@@ -1,6 +1,5 @@
 import { expect, test } from "vitest";
-import miniText from "../../tests/fixtures/mini.json?raw";
-import riftText from "../../scenes/rift.json?raw";
+import miniText from "./fixtures/mini.json?raw";
 import { parseTimeline, keepLocked } from "../src/core/timeline";
 import type { Timeline } from "../src/core/types";
 
@@ -15,8 +14,10 @@ test("mini parses clean", () => {
   expect(r.data?.name).toBe("mini");
 });
 
-test("rift_loads", () => {
-  const r = parseTimeline(riftText);
+// The rift scene lives in the parent repo only; the published web/ repo skips this.
+const riftText = Object.values(import.meta.glob("../../scenes/rift.json", { query: "?raw", import: "default", eager: true }))[0] as string | undefined;
+test.skipIf(!riftText)("rift_loads", () => {
+  const r = parseTimeline(riftText!);
   expect(r.errors).toEqual([]);
   expect(r.ok).toBe(true);
 });
