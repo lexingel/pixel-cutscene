@@ -47,7 +47,7 @@ export interface Actor {
   locked?: boolean;
 }
 
-export interface FxEntry { id: string; t: number; fx: string; x: number; y: number; flip?: boolean; angle?: number; reach?: number; dur?: number; locked?: boolean }
+export interface FxEntry { id: string; t: number; fx: string; x: number; y: number; flip?: boolean; angle?: number; reach?: number; dur?: number; locked?: boolean; row?: number } // row: the effects row (layer); higher rows draw in front
 
 /** A time effect, in output time: a hold freezes the picture (a hit-stop when short), slow is a speed ramp. */
 export interface TimeFx { id: string; t: number; dur: number; kind: "slow" | "hold"; rate?: number; locked?: boolean }
@@ -72,6 +72,7 @@ export interface Timeline {
   kit?: string;
   closeup_scale?: number;
   shadows?: boolean;
+  fx_rows?: number; // effects rows shown, empty ones too (at least enough for the highest row used)
   letterbox?: number; // pixels of black bar at the top and bottom (a cinema frame) // a ground shadow under every actor in wide shots
   shots: Shot[];
   actors: Actor[];

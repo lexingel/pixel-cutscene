@@ -198,7 +198,7 @@ function drawShot(p: RenderInput, shot: Shot, t: number, out: Img): void {
     }
 
     layer(shot.near, 1.5);
-    const fx = tl.fx.flatMap((f) => fxFrame(p, f as FxLive, t, cam, asset) ?? []);
+    const fx = [...tl.fx].sort((a, b) => (a.row ?? 0) - (b.row ?? 0)).flatMap((f) => fxFrame(p, f as FxLive, t, cam, asset) ?? []);
     if (shot.grade || shot.vignette) light(out, shot.grade, shot.vignette, shot.grade ? fx.map((f) => ({ x: f.x + f.img.w / 2, y: f.y + f.img.h / 2 })) : []);
     for (const f of fx) blit(out, f.img, f.x, f.y, 1, f.flip); // effects glow: drawn over the grade
     // speech over everything in the scene: a bubble over the speaker's head (top of the sprite, else 40 px over the feet)

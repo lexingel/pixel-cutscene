@@ -107,9 +107,9 @@ test("three heroes, a dragon, fire, dust", async ({ page }) => {
 
   await seekTo(page, 3, 0);
   await addMove(page, dragon, "Breathe fire");
-  const flame = page.locator(".clip.fx[title=\"fire breath\"]");
+  const flame = page.locator(".clip.fx[title^=\"fire breath · \"]");
   await expect(flame).toBeVisible({ timeout: 60_000 }); // the first bake loads the effect's chunk
-  const flameW = (await flame.boundingBox())!.width, laneW = (await page.locator(".lane").first().boundingBox())!.width;
+  const flameW = (await flame.boundingBox())!.width, laneW = (await page.locator(".track.ruler .lane").boundingBox())!.width;
   expect(flameW).toBeLessThan((laneW * 1.2) / DURATION); // a one-second breath, not the rest of the scene
   expect(flameW).toBeGreaterThan((laneW * 0.8) / DURATION);
   await flame.click();
@@ -128,15 +128,15 @@ test("three heroes, a dragon, fire, dust", async ({ page }) => {
   for (let i = 1; i <= 3; i++) await addMove(page, `hero ${i}`, "Hurt");
   await seekTo(page, 3, 24); // 3.8 s
   for (let i = 1; i <= 3; i++) await addMove(page, `hero ${i}`, "Turn to dust");
-  await expect(page.locator(".clip[title$=\"· Turn to dust\"]")).toHaveCount(3);
-  await expect(page.locator(".clip[title$=\"· Hurt\"]")).toHaveCount(3);
+  await expect(page.locator(".clip[title*=\"· Turn to dust · \"]")).toHaveCount(3);
+  await expect(page.locator(".clip[title*=\"· Hurt · \"]")).toHaveCount(3);
 
   // the screenshot at 3.4 s, while the flame burns (a step back, which the keys allow)
   await page.getByTestId("preview").focus();
   await page.keyboard.press("Escape");
   for (let i = 0; i < 12; i++) await page.keyboard.press("Shift+ArrowLeft");
   await expect(page.getByTestId("timecode").locator("b")).toHaveText("00:03.40");
-  await page.locator(".clip[title$=\"· Turn to dust\"]").first().click(); // some selection, to show the inspector with a plain label
+  await page.locator(".clip[title*=\"· Turn to dust · \"]").first().click(); // some selection, to show the inspector with a plain label
   await expectNoIds(page);
   await page.waitForTimeout(300);
   await page.screenshot({ path: "test-results/dragon-1280x800.png" });

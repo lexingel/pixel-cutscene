@@ -28,5 +28,5 @@ test("a missing effect is picked from the library in Needs approval", async ({ p
   await expect(dialog.getByRole("button", { name: /^Use / })).toHaveCount(1);
   await dialog.getByRole("button", { name: "Use fire breath" }).click();
   await expect(page.getByText("Nothing missing.", { exact: false })).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator(".clip.fx[title=\"fire breath\"]")).toBeVisible();
+  await expect(page.locator(".clip.fx[title^=\"fire breath · \"]")).toBeVisible();
 });

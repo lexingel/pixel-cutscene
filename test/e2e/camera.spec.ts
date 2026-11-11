@@ -8,8 +8,8 @@ test("camera: drag the picture of a selected shot to set a key, follow an actor,
   await expect(preview).toHaveAttribute("data-ready", "1");
   const ruler = page.locator(".track.ruler .lane");
   const rb = (await ruler.boundingBox())!;
+  await page.locator(".clip.shot").first().click(); // selecting the shot takes the playhead to its start
   await ruler.click({ position: { x: rb.width * 0.4, y: rb.height / 2 } });
-  await page.locator(".clip.shot").first().click();
   await expect(page.getByLabel("camera key 2 x")).toHaveCount(0);
   const pb = (await preview.boundingBox())!;
   await page.mouse.move(pb.x + pb.width * 0.3, pb.y + pb.height * 0.2);

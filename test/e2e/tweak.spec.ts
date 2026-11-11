@@ -137,7 +137,7 @@ test("row menu adds Turn to dust at the playhead", async ({ page }) => {
   await page.getByRole("button", { name: "Add a move for hero" }).click();
   await expect(page.getByRole("menuitem")).toHaveCount(9); // no extra anims in this fixture, plus Say, Attack and Breathe fire; no Stand up (nobody is down)
   await page.getByRole("menuitem", { name: "Turn to dust" }).click();
-  await expect(page.locator(".clip[title$=\"· Turn to dust\"]")).toBeVisible();
+  await expect(page.locator(".clip[title*=\"· Turn to dust · \"]")).toBeVisible();
   await expect(page.getByLabel("Start (s)", { exact: true })).toHaveValue("2");
   await expect(page.getByLabel("Length (s)", { exact: true })).toHaveValue("1.5");
 });
@@ -168,7 +168,7 @@ test("Breathe fire brings its flame", async ({ page }) => {
   await expect(page.getByTestId("timecode")).toContainText("1.00");
   await page.getByRole("button", { name: "Add a move for hero" }).click();
   await page.getByRole("menuitem", { name: "Breathe fire" }).click();
-  const flame = page.locator(".clip.fx[title=\"fire breath\"]");
+  const flame = page.locator(".clip.fx[title^=\"fire breath · \"]");
   await expect(flame).toBeVisible();
   await flame.click();
   await expect(page.getByLabel("Start (s)", { exact: true })).toHaveValue("1.333");
@@ -180,7 +180,7 @@ test("Breathe fire brings its flame", async ({ page }) => {
   await closeApprovals(page);
   await page.getByRole("button", { name: "Undo" }).click(); // one step takes the move and its flame together
   await expect(flame).toHaveCount(0);
-  await expect(page.locator(".clip[title=\"hero · Breathe fire\"]")).toHaveCount(0);
+  await expect(page.locator(".clip[title^=\"hero · Breathe fire · \"]")).toHaveCount(0);
 });
 
 // ---- editing in the preview
@@ -262,7 +262,7 @@ test("choosing Breathe fire in the inspector adds the flame too, in one undo ste
   await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.locator("[data-id=a1]").click();
   await page.getByLabel("Move", { exact: true }).selectOption("anim:breathe");
-  await expect(page.locator(".clip.fx[title=\"fire breath\"]")).toBeVisible({ timeout: 30000 });
+  await expect(page.locator(".clip.fx[title^=\"fire breath · \"]")).toBeVisible({ timeout: 30000 });
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(page.locator(".clip.fx")).toHaveCount(0);
   await expect(page.getByLabel("Move", { exact: true })).toHaveValue("walk");
@@ -553,7 +553,7 @@ test("the add-move menu stays on screen", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 640 });
   await openFixture(page, { extraAnim: "kneel" });
   await page.getByRole("button", { name: "Tweak", exact: true }).click();
-  await page.locator(".row-add").last().click();
+  await page.locator(".row-add[data-add]").last().click();
   const box = await page.getByRole("menu").boundingBox();
   expect(box!.y + box!.height).toBeLessThanOrEqual(640);
 });

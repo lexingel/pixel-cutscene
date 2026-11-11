@@ -217,6 +217,24 @@ export function addEntry(tl: Timeline, list: "actors" | "fx" | "audio", entry: O
   return r.error ? r : { ...r, id };
 }
 
+/** Effects rows shown: fx_rows, or enough for the highest row a bar uses. */
+export const fxRows = (tl: Timeline): number => Math.max(tl.fx_rows ?? 1, ...tl.fx.map((f) => (f.row ?? 0) + 1));
+
+export const addFxRow = (tl: Timeline): EditResult => setField(tl, "(root)", "fx_rows", fxRows(tl) + 1);
+
+/** Takes out an empty effects row; the rows above it move down one. */
+export const removeFxRow = (tl: Timeline, row: number): EditResult => {
+  const n = fxRows(tl);
+  if (n <= 1) return { tl, error: "The last effects row stays." };
+  if (tl.fx.some((f) => (f.row ?? 0) === row)) return { tl, error: "That effects row is not empty: move or delete its bars first." };
+  return edit(tl, "(root)", (c) => {
+    for (const f of c.fx) if ((f.row ?? 0) > row) f.row = f.row! - 1 || undefined;
+    for (const f of c.fx) if (f.row === undefined) delete f.row;
+    if (n - 1 > 1) c.fx_rows = n - 1;
+    else delete c.fx_rows;
+  });
+};
+
 /** Splits the shot under t into two at t (the new half copies the shot's look). */
 export const splitShot = (tl: Timeline, id: string, t: number): EditResult => {
   const nid = newId(tl, "s");
@@ -440,4 +458,19 @@ export class History {
   }
   get canUndo() { return this.past.length > 0; }
   get canRedo() { return this.future.length > 0; }
+}
+
+/** Ruler marks for a strip of D seconds at pps screen px a second: labels at least 56 px apart, unlabelled marks
+ *  between them down to one a frame, none closer than 8 px. Labelled marks carry the time as text. */
+export function rulerTicks(D: number, pps: number): { t: number; label?: string }[] {
+  const steps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
+  const big = steps.find((s) => s * pps >= 56) ?? steps[steps.length - 1];
+  const minor = [1 / FPS, ...steps].find((s) => s < big && s * pps >= 8 && Math.abs(big / s - Math.round(big / s)) < 1e-9) ?? big;
+  const per = Math.round(big / minor);
+  const out: { t: number; label?: string }[] = [];
+  for (let i = 0; i * minor < D - 1e-9; i++) {
+    const t = Math.round(i * minor * 1e6) / 1e6; // no 0.30000000000000004
+    out.push(i % per ? { t } : { t, label: String(Number(t.toFixed(1))) });
+  }
+  return out;
 }

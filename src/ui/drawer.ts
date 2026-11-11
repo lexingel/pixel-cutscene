@@ -14,7 +14,7 @@ export type DrawerItem =
   | { kind: "clip"; clip: string }
   | { kind: "track"; id: string }
   | { kind: "sound" };
-export type DropAt = { x?: number; y?: number; t?: number };
+export type DropAt = { x?: number; y?: number; t?: number; row?: number }; // row: the effects row it was dropped on
 export const ITEM_MIME = "application/x-pcs-item";
 
 const SIZE = 48;

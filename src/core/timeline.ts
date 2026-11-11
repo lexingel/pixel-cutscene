@@ -37,6 +37,7 @@ export function validateTimeline(d: unknown): string[] {
   if ("kit" in d && (typeof d.kit !== "string" || d.kit === "")) e.push("(root).kit: must be a non-empty string");
   if (!whole(d.closeup_scale ?? 1)) e.push("(root).closeup_scale: must be a whole number of 1 or more");
   if ("shadows" in d && typeof d.shadows !== "boolean") e.push("(root).shadows: must be true or false");
+  if (d.fx_rows !== undefined && !(Number.isInteger(d.fx_rows) && (d.fx_rows as number) >= 1)) e.push("(root).fx_rows: must be a whole number, 1 or more");
   if (d.letterbox !== undefined && !(Number.isInteger(d.letterbox) && d.letterbox >= 0)) e.push("(root).letterbox: must be a whole number of pixels, 0 or more");
 
   const list = (k: string): any[] => (Array.isArray(d[k]) ? d[k] : []);
@@ -138,6 +139,7 @@ export function validateTimeline(d: unknown): string[] {
     for (const k of ["x", "y"]) if (!hasNum(f, k)) e.push(`${id}.${k}: must be a number`);
     if (f.flip !== undefined && typeof f.flip !== "boolean") e.push(`${id}.flip: must be true or false`);
     if (f.angle !== undefined && !hasNum(f, "angle")) e.push(`${id}.angle: must be a number`);
+    if (f.row !== undefined && !(Number.isInteger(f.row) && (f.row as number) >= 0)) e.push(`${id}.row: must be a whole number, 0 or more`);
     if (f.reach !== undefined && !(hasNum(f, "reach") && (f.reach as number) >= 1 && (f.reach as number) <= 4)) e.push(`${id}.reach: must be 1 to 4`);
   }
   let lastEnd = -1;

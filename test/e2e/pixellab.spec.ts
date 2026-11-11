@@ -286,8 +286,8 @@ test("pixellab: Breathe fire from the + menu before it exists adds its flame", a
   await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.getByRole("button", { name: "Add a move for hero" }).click();
   await page.getByRole("menuitem", { name: "Breathe fire" }).click();
-  await expect(page.locator(".clip[title=\"hero · Breathe fire\"]")).toBeVisible();
-  await expect(page.locator(".clip.fx[title=\"fire breath\"]")).toBeVisible();
+  await expect(page.locator(".clip[title^=\"hero · Breathe fire · \"]")).toBeVisible();
+  await expect(page.locator(".clip.fx[title^=\"fire breath · \"]")).toBeVisible();
 });
 
 test("pixellab: Generate all makes every missing move behind one confirm with the total", async ({ page }) => {

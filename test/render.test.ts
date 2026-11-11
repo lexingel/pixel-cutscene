@@ -252,6 +252,19 @@ describe("renderFrame", () => {
       expect([8, 9, 10, 11].map((x) => at(r.out, x, 5)[0])).toEqual([40, 30, 20, 10]);
       expect(at(r.out, 12, 5)).toEqual(BLACK);
     });
+    test("a higher effects row draws in front, whatever the list order", () => {
+      const kit = emptyKit();
+      kit.assets.r = { ...piece, kind: "fx", path: "r.png", fx: { cols: 1, frames: 1, fps: 12, loop: true, dx: 0, dy: 0 } };
+      kit.assets.g = { ...piece, kind: "fx", path: "g.png", fx: { cols: 1, frames: 1, fps: 12, loop: true, dx: 0, dy: 0 } };
+      const t = flat(tl());
+      t.fx = [{ id: "f1", t: 0, fx: "r", x: 10, y: 5, row: 1 }, { id: "f2", t: 0, fx: "g", x: 10, y: 5 }];
+      const r = setup(t, kit, { "r.png": solid(2, 2, 200), "g.png": solid(2, 2, 0, 200) });
+      r.draw(0);
+      expect(at(r.out, 10, 5)).toEqual([200, 0, 0, 255]); // row 1 over row 0
+      t.fx[0].row = 0;
+      r.draw(0);
+      expect(at(r.out, 10, 5)).toEqual([0, 200, 0, 255]); // same row: list order
+    });
     test("a one-shot ends after its last frame unless it holds", () => {
       const t = flat(tl());
       t.fx = [{ id: "f1", t: 2, fx: "heal_fx", x: 100, y: 50 }];

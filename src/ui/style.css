@@ -314,11 +314,57 @@ a { color: inherit; }
 .todo { margin: 2px 0 0; padding-left: 18px; font-size: 12.5px; display: grid; gap: 3px; }
 .needs > li:focus { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
 
+/* the timeline: a height grip on top, the tracks, and (zoomed in) an overview strip under them */
+.tl-box { grid-column: 2; min-width: 0; display: flex; flex-direction: column; isolation: isolate; } /* its sticky names stay under the sticky top bar */
+.t-resize { height: 8px; margin: -6px 0 -2px; border-radius: 4px; cursor: row-resize; touch-action: none; position: relative; z-index: 6; }
+.t-resize::after { content: ""; position: absolute; left: calc(50% - 18px); top: 3px; width: 36px; height: 2px; border-radius: 1px; background: var(--line); }
+.t-resize:hover::after, .t-resize:focus-visible::after { background: var(--focus); }
+.t-resize:focus-visible { outline: none; }
 .tracks {
-  --label: 112px; --z: 1; grid-column: 2; position: relative; max-height: max(220px, 45vh); overflow: auto;
+  --label: 136px; --z: 1; --lh: 26px; position: relative; height: var(--tracks-h, auto); max-height: var(--tracks-h, max(220px, 45vh)); overflow: auto;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); user-select: none;
 }
-.track { display: grid; grid-template-columns: var(--label) 1fr; min-height: 30px; border-top: 1px solid var(--line); width: calc(var(--label) + (100% - var(--label)) * var(--z)); }
+.tracks.compact { --lh: 20px; }
+.tracks.compact .track { min-height: 24px; }
+.tracks.compact .clip { height: 16px; font-size: 11px; }
+.tracks.compact .row-add { width: 20px; height: 20px; }
+/* shots as alternating bands behind every row, a line at each cut */
+.shot-bands { position: absolute; top: 0; left: calc(var(--label) + 10px); width: calc((100% - var(--label)) * var(--z) - 20px); pointer-events: none; }
+.shot-bands i { position: absolute; top: 0; bottom: 0; }
+.shot-bands i.odd { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.shot-bands i + i { border-left: 1px dashed color-mix(in srgb, var(--ink) 22%, transparent); }
+/* group headers: Characters, Effects, Sound */
+.track.group { min-height: 24px; background: var(--raised); }
+.track.group > .track-label { background-color: var(--raised); }
+.grp { all: unset; cursor: pointer; font: 700 12px/1 var(--font-ui); color: var(--ink); white-space: nowrap; text-transform: none; letter-spacing: 0; }
+.grp .n { font: 600 11px var(--font-mono); color: var(--muted); text-transform: none; }
+.grp:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
+.gmark { position: absolute; top: 9px; height: 6px; border-radius: 2px; background: var(--band); opacity: 0.8; }
+/* the ruler's corner: row size and the names column's edge */
+.dens { all: unset; cursor: pointer; justify-self: start; width: 22px; text-align: center; font-size: 14px; color: var(--muted); border-radius: 3px; }
+.dens:hover, .dens:focus-visible { color: var(--ink); background: var(--raised); outline: none; }
+.l-resize { position: absolute; right: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; touch-action: none; z-index: 5; }
+.l-resize:hover, .l-resize:focus-visible { background: var(--focus); opacity: .5; outline: none; }
+.who-pic { height: 18px; width: auto; max-width: 22px; image-rendering: pixelated; object-fit: contain; flex: none; }
+.track-label:has(.who-pic) { display: flex; align-items: center; gap: 6px; }
+.bar-pic { height: 16px; width: auto; max-width: 20px; image-rendering: pixelated; margin-right: 4px; flex: none; pointer-events: none; }
+.wave { position: absolute; inset: 3px auto 0 0; width: calc(100% * var(--wk, 1)); height: calc(100% - 3px); pointer-events: none; opacity: 0.45; }
+.wave path { stroke: var(--band, var(--ink)); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.clip > span { position: relative; }
+/* the playhead's time, at the top; the snap line while dragging */
+.ph-t { position: absolute; top: 2px; left: 2px; padding: 0 4px; font: 600 10px/16px var(--font-mono); color: var(--ground); background: var(--ink); border-radius: 3px; white-space: nowrap; }
+.snap-guide { position: absolute; top: 0; width: 1px; pointer-events: none; z-index: 3; background: var(--focus); left: calc(var(--label) + 10px + ((100% - var(--label)) * var(--z) - 20px) * var(--g, 0)); }
+/* zoomed in: the whole scene, the visible part boxed */
+.overview { position: relative; height: 22px; margin-top: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; overflow: hidden; touch-action: none; }
+.ov-bars { position: absolute; inset: 0; }
+.ov-bars i { position: absolute; height: 4px; border-radius: 1px; }
+.ov-shot { top: 0; bottom: 0; height: auto !important; }
+.ov-shot.odd { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.ov-a { background: var(--c-char, var(--c-place)); }
+.ov-f { background: var(--c-fx); }
+.ov-s { background: var(--c-sound); }
+.ov-win { position: absolute; top: 0; bottom: 0; border: 2px solid var(--focus); border-radius: 3px; background: color-mix(in srgb, var(--focus) 10%, transparent); pointer-events: none; }
+.track { position: relative; display: grid; grid-template-columns: var(--label) 1fr; min-height: 30px; border-top: 1px solid var(--line); width: calc(var(--label) + (100% - var(--label)) * var(--z)); }
 .track:first-child { border-top: 0; }
 .track-label {
   position: sticky; left: 0; z-index: 4; background: var(--panel);
@@ -332,6 +378,13 @@ a { color: inherit; }
   background: var(--raised); border: 1px solid var(--line); border-radius: 4px; cursor: pointer;
 }
 .row-add:hover { border-color: var(--focus); }
+.row-add[data-fxdel] { right: 28px; }
+.track-label[data-fxrow] { padding-right: 56px; }
+.row-add-char {
+  justify-self: start; padding: 3px 8px; font: inherit; font-weight: 600; color: var(--ink);
+  background: var(--raised); border: 1px dashed var(--line); border-radius: 4px; cursor: pointer;
+}
+.row-add-char:hover { border-color: var(--focus); border-style: solid; }
 .move-menu {
   position: fixed; z-index: 50; display: grid; min-width: 150px; padding: 4px; background: var(--panel);
   border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 6px 20px color-mix(in srgb, var(--ink) 25%, transparent);
@@ -351,8 +404,9 @@ a { color: inherit; }
   position: absolute; top: 0; bottom: 0; padding-left: 3px; border-left: 1px solid var(--line);
   font: 12px/22px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums;
 }
+.tick.minor { top: 15px; padding: 0; }
 .clip {
-  position: absolute; top: calc(4px + var(--k, 0) * 26px); height: 22px; min-width: 44px; display: flex; align-items: center; padding: 0 6px;
+  position: absolute; top: calc(4px + var(--k, 0) * var(--lh)); height: calc(var(--lh) - 4px); min-width: 44px; display: flex; align-items: center; padding: 0 6px;
   font-size: 12px; font-weight: 550; color: var(--ink); background: color-mix(in srgb, var(--c-place) 22%, var(--panel)); border: 1px solid color-mix(in srgb, var(--c-place) 50%, var(--panel)); border-radius: 4px;
   cursor: grab; overflow: hidden; white-space: nowrap;
 }
@@ -366,8 +420,8 @@ a { color: inherit; }
 .clip.music { background: color-mix(in srgb, var(--c-sound) 22%, var(--panel)); border-color: color-mix(in srgb, var(--c-sound) 50%, var(--panel)); }
 .clip.sfx, .clip.voice { background: color-mix(in srgb, var(--c-sound) 22%, var(--panel)); border-color: color-mix(in srgb, var(--c-sound) 50%, var(--panel)); }
 .track[data-cat] .clip::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--band); pointer-events: none; }
-.track[data-cat] .clip:not(.mark) { background: var(--raised); }
-.track[data-cat] .clip:not(.warn, .sel) { border-color: color-mix(in srgb, var(--ink) 16%, var(--line)); }
+.track[data-cat] .clip:not(.mark) { background: color-mix(in srgb, var(--band) 34%, var(--raised)); }
+.track[data-cat] .clip:not(.warn, .sel) { border-color: color-mix(in srgb, var(--band) 55%, var(--line)); }
 .clip.warn { border-style: dashed; border-color: var(--focus); }
 .clip.locked { background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink) 7%, transparent) 0 4px, transparent 4px 8px); }
 .clip.sel { border-color: var(--ink); color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
@@ -574,7 +628,7 @@ kbd { font: 12px/1.6 var(--font-mono); padding: 1px 6px; border: 1px solid var(-
   .bar .save, .bar > .btn { order: 4; }
   .name { width: 140px; }
   .tweak { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
-  .stage, .transport, .tracks { grid-column: 1; }
+  .stage, .transport, .tl-box { grid-column: 1; }
   .stage { min-height: 200px; }
   .drawer { grid-row: auto; max-height: none; order: 5; } /* the picture first, the library under the timeline */
   .d-fx { flex: none; }
