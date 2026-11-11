@@ -1,7 +1,7 @@
 import { missingReport } from "../core/missing";
 import { toZip, type Project } from "../core/project";
 import type { Img } from "../core/kit";
-import { frameZoom, renderFrame } from "../core/render";
+import { cinemaBars, frameZoom, renderFrame } from "../core/render";
 import { zoomFrame } from "../core/raster";
 import { decode } from "./cast";
 import { pickCodec, type Quality } from "../export/encode";
@@ -139,7 +139,10 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
       t = Math.min(Math.max(t || 0, 0), tl.duration);
       renderFrame(input, t, native);
       const z = frameZoom(input, t);
-      if (z) zoomFrame(native, z.z, z.x, z.y, 1, zoomed, k);
+      if (z) {
+        zoomFrame(native, z.z, z.x, z.y, 1, zoomed, k);
+        cinemaBars({ w: W, h: H, px: zoomed }, tl);
+      }
       g.putImageData(new ImageData(z ? zoomed : native.px, W, H), 0, 0);
       $("[data-testid=poster-note]").textContent = `The scene at ${t.toFixed(1)} s, where the store loop starts. Change From to look elsewhere.`;
     };

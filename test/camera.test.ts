@@ -1,7 +1,8 @@
 import { expect, test } from "vitest";
 import { camAt } from "../src/core/cam";
 import type { Img, Kit } from "../src/core/kit";
-import { renderFrame } from "../src/core/render";
+import { cinemaBars, frameZoom, renderFrame } from "../src/core/render";
+import { zoomFrame } from "../src/core/raster";
 import { validateTimeline } from "../src/core/timeline";
 import type { Timeline } from "../src/core/types";
 import { followKeys } from "../src/ui/stageEdit";
@@ -53,4 +54,24 @@ test("letterbox: black bars top and bottom", () => {
   expect(validateTimeline(t)).toEqual([]);
   expect([...out.px.slice(0, 3)]).toEqual([0, 0, 0]);
   expect([...out.px.slice((W * (H - 1)) * 4, (W * (H - 1)) * 4 + 3)]).toEqual([0, 0, 0]);
+});
+
+test("letterbox stays on a zoomed frame: the bars go on after the zoom, at the output scale", () => {
+  const t = tl();
+  t.letterbox = 3;
+  t.shots[0].bg = "g";
+  if (t.shots[0].type === "wide") t.shots[0].zoom = { from: 2, to: 2, x: 8, y: 6 };
+  const W = 16, H = 12, out = { w: W, h: H, px: new Uint8ClampedArray(W * H * 4) };
+  const inp = { tl: t, kit: { ...kit, assets: { g: { approved: true, source: "user", kind: "bg", path: "g" } } } as unknown as Kit, img: (k: string) => (k === "g" ? { w: W, h: H, px: new Uint8ClampedArray(W * H * 4).fill(200) } : null), draft: false, W, H };
+  renderFrame(inp, 1, out);
+  expect(out.px[0]).toBeGreaterThan(0); // a zoomed frame has no bars yet (the zoom would crop them)
+  const z = frameZoom(inp, 1)!, k = 2, big = { w: W * k, h: H * k, px: new Uint8ClampedArray(W * k * H * k * 4) };
+  zoomFrame(out, z.z, z.x, z.y, k, big.px);
+  cinemaBars(big, t, k);
+  const row = (y: number) => [...big.px.slice(y * big.w * 4, y * big.w * 4 + 3)];
+  expect(row(0)).toEqual([0, 0, 0]);
+  expect(row(3 * k - 1)).toEqual([0, 0, 0]);
+  expect(row(3 * k)[0]).toBeGreaterThan(0);
+  expect(row(big.h - 3 * k)).toEqual([0, 0, 0]);
+  cinemaBars(big, { ...t, letterbox: undefined }, k); // no letterbox: nothing to do
 });

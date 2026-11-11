@@ -2,7 +2,7 @@ import { GIFEncoder, applyPalette, quantize } from "gifenc";
 import type { Img } from "../core/kit";
 import { missingReport } from "../core/missing";
 import type { Project } from "../core/project";
-import { frameZoom, renderFrame, watermark } from "../core/render";
+import { cinemaBars, frameZoom, renderFrame, watermark } from "../core/render";
 import { zoomFrame } from "../core/raster";
 import { decode } from "../ui/cast";
 import { MIX_RATE, decodeAudio, mixAudio } from "./audioMix";
@@ -115,7 +115,9 @@ export async function exportVideo(p: Project, opts: ExportOpts, codec?: Containe
     const z = frameZoom(input, t);
     if (z) {
       zoomFrame(native, z.z, z.x, z.y, kk, zoomed, kk === k && kind === "full" ? p.canvas.exportScale : kk); // zoom steps as in the preview, at any output scale
-      if (input.draft && !vert) watermark({ w: W * kk, h: H * kk, px: zoomed.subarray(0, W * kk * H * kk * 4) });
+      const zi = { w: W * kk, h: H * kk, px: zoomed.subarray(0, W * kk * H * kk * 4) };
+      cinemaBars(zi, tl, kk);
+      if (input.draft && !vert) watermark(zi);
       return zoomed;
     }
     return kk === 1 ? native.px : upscale(native, kk, big);

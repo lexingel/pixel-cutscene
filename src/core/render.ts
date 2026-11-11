@@ -28,6 +28,12 @@ const GLYPHS: Record<string, string[]> = {
   T: ["11111", "..1..", "..1..", "..1..", "..1..", "..1..", "..1.."],
 };
 
+/** Cinema bars over everything but the draft mark, on a frame drawn at k output pixels per scene pixel. */
+export function cinemaBars(out: Img, tl: Timeline, k = 1): void {
+  const bar = Math.min((tl.letterbox ?? 0) * k, out.h >> 1) * out.w * 4;
+  if (bar) for (const [a, b] of [[0, bar], [out.px.length - bar, out.px.length]]) for (let j = a; j < b; j += 4) out.px.fill(0, j, j + 3);
+}
+
 export function watermark(out: Img): void {
   // small, top-right: the action is usually low in the frame (feet on the floor)
   const k = Math.max(1, Math.floor(out.h / 180));
@@ -117,9 +123,9 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
   fade(out, Math.min(Math.max(aIn, aOut, 0), 1));
   const aFlash = (shot.flash ?? 0) > 0 ? 1 - into / shot.flash! : 0;
   if (aFlash > 0) for (let j = 0; j < out.px.length; j += 4) for (let c = 0; c < 3; c++) out.px[j + c] += (255 - out.px[j + c]) * aFlash;
-  const bar = Math.min(tl.letterbox ?? 0, out.h >> 1) * out.w * 4; // cinema bars over everything but the draft mark
-  if (bar) for (const [a, b] of [[0, bar], [out.px.length - bar, out.px.length]]) for (let j = a; j < b; j += 4) out.px.fill(0, j, j + 3);
-  if (draft && p.mark !== false && !frameZoom(p, outT)) watermark(out); // a zoomed frame gets its mark after the zoom (exporter), at its normal size
+  const zoomed = frameZoom(p, outT) !== null; // a zoomed frame gets its bars and mark after the zoom: the zoom would crop them
+  if (!zoomed) cinemaBars(out, tl);
+  if (draft && p.mark !== false && !zoomed) watermark(out);
 }
 
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]; // 4x4 ordered dither thresholds

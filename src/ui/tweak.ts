@@ -7,7 +7,7 @@ import { actorName, fxName, labelOf, shotName, timeName } from "../core/labels";
 import { moveLabel } from "../core/moves";
 import { missingReport } from "../core/missing";
 import type { Project } from "../core/project";
-import { actorFocus, frameZoom, fxEnd, newFxDur, renderFrame } from "../core/render";
+import { actorFocus, cinemaBars, frameZoom, fxEnd, newFxDur, renderFrame } from "../core/render";
 import { unzoom, zoomFrame, zoomView } from "../core/raster";
 import { actionSpan, downAt, pose, shotAt } from "../core/acting";
 import { charFrames } from "../core/frames";
@@ -189,7 +189,10 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     else frame.px.fill(0);
     const z = T.shots.length ? frameZoom(inp, t) : null;
     // stepped like the export, so the preview zooms at the same moments
-    if (z) zoomFrame(frame, z.z, z.x, z.y, 1, zoomed, p.canvas.exportScale);
+    if (z) {
+      zoomFrame(frame, z.z, z.x, z.y, 1, zoomed, p.canvas.exportScale);
+      cinemaBars({ w: W, h: H, px: zoomed }, T);
+    }
     view = z ? zoomView(W, H, z.z, z.x, z.y, 1, p.canvas.exportScale) : null;
     g.putImageData(new ImageData(z ? zoomed : frame.px, W, H), 0, 0);
     $("[data-testid=timecode]").innerHTML = `<b>${clock(t)}</b> / ${clock(T.duration)} <span class="frame-no">· frame ${Math.round(t * FPS)}</span>`;
