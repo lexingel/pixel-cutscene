@@ -36,7 +36,7 @@ export type Found =
   | { kind: "shot"; e: Obj; i: number }
   | { kind: "actor"; e: Obj }
   | { kind: "action"; e: Obj; actor: Obj }
-  | { kind: "fx" | "audio"; e: Obj };
+  | { kind: "fx" | "audio" | "time"; e: Obj };
 
 export function find(tl: Timeline, id: string): Found | null {
   if (id === "(root)") return { kind: "root", e: tl };
@@ -50,7 +50,9 @@ export function find(tl: Timeline, id: string): Found | null {
   const f = tl.fx.find((x) => x.id === id);
   if (f) return { kind: "fx", e: f };
   const s = tl.audio.find((x) => x.id === id);
-  return s ? { kind: "audio", e: s } : null;
+  if (s) return { kind: "audio", e: s };
+  const w = tl.time?.find((x) => x.id === id);
+  return w ? { kind: "time", e: w } : null;
 }
 
 // Clone, edit, then keep the result only if it adds no validation error (an already broken
@@ -68,7 +70,7 @@ function edit(tl: Timeline, id: string, f: (copy: Timeline, at: Found) => string
 
 export function newId(tl: Timeline, prefix: string): string {
   const used = new Set<string>();
-  const all: Obj[] = [...tl.shots, ...tl.actors, ...tl.fx, ...tl.audio, ...tl.actors.flatMap((a) => a.actions)];
+  const all: Obj[] = [...tl.shots, ...tl.actors, ...tl.fx, ...tl.audio, ...(tl.time ?? []), ...tl.actors.flatMap((a) => a.actions)];
   all.forEach((x) => used.add(x.id));
   let n = 1;
   while (used.has(prefix + n)) n++;
@@ -85,12 +87,12 @@ export const moveEntry = (tl: Timeline, id: string, t: number): EditResult =>
 
 export const resizeEntry = (tl: Timeline, id: string, dur: number): EditResult =>
   edit(tl, id, (_c, at) => {
-    if (at.kind !== "action" && at.kind !== "fx") return "Only actions and effects have a duration (a sound lasts as long as its clip).";
+    if (at.kind !== "action" && at.kind !== "fx" && at.kind !== "time") return "Only actions and effects have a duration (a sound lasts as long as its clip).";
     at.e.dur = Math.max(snap(dur), 1 / FPS);
   });
 
 /** What Ctrl+C keeps: a move (with the actor it came from), an effect or a sound; not shots or actors. */
-export type Clip = { kind: "action" | "fx" | "audio"; e: Obj; actor?: string };
+export type Clip = { kind: "action" | "fx" | "audio"; e: Obj; actor?: string; dt?: number };
 
 export function copyEntry(tl: Timeline, id: string): Clip | null {
   const at = find(tl, id);
@@ -104,6 +106,78 @@ export function pasteEntry(tl: Timeline, clip: Clip, t: number, actor?: string):
   const e = { ...structuredClone(clip.e), t: snap(t) };
   if (clip.kind === "action") return addAction(tl, actor ?? clip.actor!, e as Omit<Action, "id">);
   return addEntry(tl, clip.kind, e, clip.kind === "fx" ? "f" : "sound");
+}
+
+// ---- several bars at once (a multi-selection): each op is one undo step
+
+/** The copyable ones among `ids`, earliest first, each with its offset from the earliest. */
+export function copyMany(tl: Timeline, ids: string[]): Clip[] {
+  const clips = ids.map((id) => copyEntry(tl, id)).filter((c): c is Clip => !!c).sort((a, b) => a.e.t - b.e.t);
+  const t0 = clips[0]?.e.t ?? 0;
+  return clips.map((c) => ({ ...c, dt: snap(c.e.t - t0) }));
+}
+
+/** Pastes the group with its earliest bar at t. `actor` takes the moves only when they all came from one actor. */
+export function pasteMany(tl: Timeline, clips: Clip[], t: number, actor?: string): EditResult & { ids: string[] } {
+  const one = new Set(clips.filter((c) => c.kind === "action").map((c) => c.actor)).size === 1;
+  let cur = tl;
+  const ids: string[] = [];
+  for (const c of clips) {
+    const r = pasteEntry(cur, c, t + (c.dt ?? 0), c.kind === "action" && one ? actor : undefined);
+    if (r.error) return { tl, error: r.error, ids: [] };
+    cur = r.tl;
+    ids.push(r.id!);
+  }
+  return { tl: cur, ids, id: ids[0] };
+}
+
+const timeOf = (tl: Timeline, id: string) => {
+  const at = find(tl, id);
+  return at?.kind === "actor" ? Number(at.e.appear ?? 0) : at && at.kind !== "shot" && at.kind !== "root" ? Number(at.e.t) : null;
+};
+
+/** Shifts every bar by dt; the group stops together at 0 and at the scene's end, so their spacing stays. */
+export function moveMany(tl: Timeline, ids: string[], dt: number): EditResult {
+  const ts = ids.map((id) => timeOf(tl, id)).filter((x): x is number => x !== null);
+  if (!ts.length) return { tl };
+  const d = clamp(snap(dt), -Math.min(...ts), tl.duration - Math.max(...ts));
+  let cur = tl;
+  for (const id of ids) {
+    const t0 = timeOf(cur, id);
+    if (t0 === null) continue;
+    const r = moveEntry(cur, id, t0 + d);
+    if (r.error) return { tl, error: r.error };
+    cur = r.tl;
+  }
+  return { tl: cur };
+}
+
+export function deleteMany(tl: Timeline, ids: string[]): EditResult {
+  let cur = tl;
+  for (const id of ids) {
+    if (!find(cur, id)) continue;
+    const r = deleteEntry(cur, id);
+    if (r.error) return { tl, error: r.error };
+    cur = r.tl;
+  }
+  return { tl: cur };
+}
+
+/** "Do this to everyone": the same move, at the same time, on every other actor. */
+export function applyToOthers(tl: Timeline, actionId: string): EditResult & { ids: string[] } {
+  const at = find(tl, actionId);
+  if (at?.kind !== "action") return { tl, error: "Only a move can be given to the other actors.", ids: [] };
+  const c = copyEntry(tl, actionId)!;
+  let cur = tl;
+  const ids: string[] = [];
+  for (const a of tl.actors) {
+    if (a.id === at.actor.id) continue;
+    const r = pasteEntry(cur, c, Number(at.e.t), a.id);
+    if (r.error) return { tl, error: r.error, ids: [] };
+    cur = r.tl;
+    ids.push(r.id!);
+  }
+  return { tl: cur, ids };
 }
 
 /** `[`: the bar starts at t. A bar with a length keeps its end (trimmed); one without just moves there. */
@@ -211,6 +285,76 @@ export function transition(tl: Timeline, t: number, kind: Transition): EditResul
   if (!tl.shots.length) return { tl, error: "Add a shot first." };
   const s = shotAt(tl, t);
   return { ...setField(tl, s.id, kind, Math.min(TRANSITION_LEN[kind], s.end - s.start)), id: s.id };
+}
+
+/** The camera key at the playhead in the wide shot under t: changed if there is one, else added. */
+export function camKeyAt(tl: Timeline, t: number, x: number, y: number): EditResult {
+  const s = tl.shots.length ? shotAt(tl, t) : null;
+  if (!s || s.type !== "wide") return { tl, error: "Move the playhead to a wide shot first (close-ups have no camera)." };
+  const a = snap(t), k = s.camera.find((c) => Math.abs(c.t - a) < 1e-6);
+  const keys = k ? s.camera.map((c) => (c === k ? { ...c, x: Math.round(x), y: Math.round(y) } : c)) : [...s.camera, { t: a, x: Math.round(x), y: Math.round(y) }];
+  return { ...setCamera(tl, s.id, keys), id: s.id };
+}
+
+/** Storyboard order: shot `from` goes to place `to`, taking along everything that starts inside it (moves, effects,
+ * sounds, time effects, its camera keys); the shots close up behind it. A shot that ends up first loses a dissolve or wipe. */
+export function moveShot(tl: Timeline, from: number, to: number): EditResult {
+  if (from === to || !tl.shots[from] || !tl.shots[to]) return { tl };
+  return edit(tl, "(root)", (c) => {
+    const old = c.shots.map((s) => ({ start: s.start, end: s.end }));
+    const order = c.shots.map((_, i) => i);
+    order.splice(to, 0, order.splice(from, 1)[0]);
+    const delta: number[] = [];
+    let at = old[0].start;
+    for (const i of order) (delta[i] = at - old[i].start), (at += old[i].end - old[i].start);
+    const r3 = (x: number) => Math.round(x * 1000) / 1000;
+    const shift = (t: number) => {
+      const i = old.findIndex((s, k) => t < s.end || k === old.length - 1);
+      return r3(t + delta[Math.max(i, 0)]);
+    };
+    c.shots.forEach((s, i) => {
+      s.start = r3(s.start + delta[i]);
+      s.end = r3(s.end + delta[i]);
+      if (s.type === "wide") for (const k of s.camera) k.t = r3(k.t + delta[i]);
+    });
+    c.shots = order.map((i) => c.shots[i]);
+    if (c.shots[0].transition && c.shots[0].transition.kind !== "iris") delete c.shots[0].transition;
+    const byT = (a: { t: number }, b: { t: number }) => a.t - b.t;
+    for (const a of c.actors) {
+      if (a.appear !== undefined) a.appear = shift(a.appear);
+      for (const x of a.actions) x.t = shift(x.t);
+      a.actions.sort(byT);
+    }
+    for (const list of [c.fx, c.audio, c.time ?? []] as { t: number }[][]) {
+      for (const x of list) x.t = shift(x.t);
+      list.sort(byT);
+    }
+  });
+}
+
+export type ShotIn = "dissolve" | "wipe" | "iris" | "iris_out";
+/** How the shot under t comes in (from the shot before, or an iris out of black), or an iris closing at its end. */
+export function shotTransition(tl: Timeline, t: number, kind: ShotIn, dur = 0.5): EditResult {
+  if (!tl.shots.length) return { tl, error: "Add a shot first." };
+  const s = shotAt(tl, t);
+  const d = Math.min(dur, s.end - s.start);
+  if (kind === "iris_out") return { ...setField(tl, s.id, "iris_out", d), id: s.id };
+  if (kind !== "iris" && tl.shots[0].id === s.id) return { tl, error: `The first shot has nothing before it to ${kind} from. Put the playhead in a later shot.` };
+  return { ...setField(tl, s.id, "transition", { kind, dur: d }), id: s.id };
+}
+
+export type TimeKind = "slow" | "hold" | "hitstop";
+const TIME_FX: Record<TimeKind, { dur: number; kind: "slow" | "hold"; rate?: number }> = { slow: { dur: 1, kind: "slow", rate: 0.25 }, hold: { dur: 0.5, kind: "hold" }, hitstop: { dur: 0.1, kind: "hold" } };
+/** A time effect starting at t on the Time row: slow motion (1 s), a hold (0.5 s) or a hit-stop (3 frames). */
+export function addTimeFx(tl: Timeline, t: number, k: TimeKind): EditResult {
+  const a = snap(t), d = TIME_FX[k];
+  if (a + d.dur > tl.duration + 1e-6) return { tl, error: "Too close to the end of the scene: move the playhead earlier." };
+  if ((tl.time ?? []).some((x) => a < x.t + x.dur - 1e-6 && x.t < a + d.dur - 1e-6)) return { tl, error: "Time effects can't overlap: move the playhead past the one already here." };
+  const id = newId(tl, "tm");
+  const r = edit(tl, "(root)", (c) => void (c.time ??= []).push({ id, t: a, dur: d.dur, kind: d.kind, ...(d.rate ? { rate: d.rate } : {}) }));
+  if (r.error) return r;
+  r.tl.time!.sort((x, y) => x.t - y.t);
+  return { ...r, id };
 }
 
 export const deleteEntry = (tl: Timeline, id: string): EditResult =>

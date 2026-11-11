@@ -2,7 +2,7 @@ import type { ParseResult, Timeline } from "./types";
 
 export const ACTIONS = ["idle", "walk", "look_around", "startle", "move", "hurt", "dust", "say"]; // plus "anim:<name>"
 export const KINDS = ["music", "sfx", "voice"];
-const LISTS = ["shots", "actors", "fx", "audio"] as const;
+const LISTS = ["shots", "actors", "fx", "audio", "time"] as const;
 
 type Obj = Record<string, any>;
 const isObj = (x: unknown): x is Obj => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -37,6 +37,7 @@ export function validateTimeline(d: unknown): string[] {
   if ("kit" in d && (typeof d.kit !== "string" || d.kit === "")) e.push("(root).kit: must be a non-empty string");
   if (!whole(d.closeup_scale ?? 1)) e.push("(root).closeup_scale: must be a whole number of 1 or more");
   if ("shadows" in d && typeof d.shadows !== "boolean") e.push("(root).shadows: must be true or false");
+  if (d.letterbox !== undefined && !(Number.isInteger(d.letterbox) && d.letterbox >= 0)) e.push("(root).letterbox: must be a whole number of pixels, 0 or more");
 
   const list = (k: string): any[] => (Array.isArray(d[k]) ? d[k] : []);
   const all: any[] = [];
@@ -63,7 +64,14 @@ export function validateTimeline(d: unknown): string[] {
     if (!approx(num(s.start, -1), prevEnd)) e.push(`${id}.start: must equal the previous shot's end (${fmt(prevEnd)})`);
     if (num(s.end) <= num(s.start)) e.push(`${id}.end: must be after start`);
     prevEnd = num(s.end);
-    for (const k of ["flash", "shake"]) if (s[k] !== undefined && !(isNum(s[k]) && s[k] >= 0)) e.push(`${id}.${k}: must be 0 or more seconds`);
+    for (const k of ["flash", "shake", "iris_out"]) if (s[k] !== undefined && !(isNum(s[k]) && s[k] >= 0)) e.push(`${id}.${k}: must be 0 or more seconds`);
+    if (s.grade !== undefined && !["night", "dusk", "cold", "sepia"].includes(s.grade)) e.push(`${id}.grade: must be night, dusk, cold or sepia`);
+    if (s.vignette !== undefined && typeof s.vignette !== "boolean") e.push(`${id}.vignette: must be true or false`);
+    if (s.transition !== undefined) {
+      const tr = s.transition;
+      if (!isObj(tr) || !["dissolve", "wipe", "iris"].includes(str(tr.kind)) || !(isNum(tr.dur) && tr.dur > 0)) e.push(`${id}.transition: needs kind dissolve, wipe or iris and a dur above 0`);
+      else if (tr.kind !== "iris" && list("shots")[0] === s) e.push(`${id}.transition: the first shot has nothing before it to ${tr.kind} from`);
+    }
     if (s.zoom !== undefined) {
       const z = s.zoom;
       if (!isObj(z) || !(isNum(z.from) && z.from >= 1 && isNum(z.to) && z.to >= 1 && hasNum(z, "x") && hasNum(z, "y")))
@@ -76,6 +84,8 @@ export function validateTimeline(d: unknown): string[] {
         if (!Array.isArray(s.camera) || s.camera.length === 0) e.push(`${id}.camera: a wide shot needs camera keys`);
         else if (!s.camera.every((k: unknown) => isObj(k) && hasNum(k, "t") && hasNum(k, "x") && hasNum(k, "y"))) {
           e.push(`${id}.camera: every key needs t, x and y numbers`);
+        } else if (s.camera.some((k: any) => k.ease !== undefined && !["linear", "hold"].includes(k.ease))) {
+          e.push(`${id}.camera: a key's ease must be smooth, linear or hold`);
         }
         break;
       case "closeup":
@@ -128,6 +138,17 @@ export function validateTimeline(d: unknown): string[] {
     if (f.flip !== undefined && typeof f.flip !== "boolean") e.push(`${id}.flip: must be true or false`);
     if (f.angle !== undefined && !hasNum(f, "angle")) e.push(`${id}.angle: must be a number`);
     if (f.reach !== undefined && !(hasNum(f, "reach") && (f.reach as number) >= 1 && (f.reach as number) <= 4)) e.push(`${id}.reach: must be 1 to 4`);
+  }
+  let lastEnd = -1;
+  for (const s of [...list("time")].filter(isObj).sort((a, b) => num(a.t) - num(b.t))) {
+    const id = str(s.id ?? "?");
+    checkT(id, s);
+    if (!["slow", "hold"].includes(str(s.kind))) e.push(`${id}.kind: must be slow or hold`);
+    if (!(isNum(s.dur) && s.dur > 0)) e.push(`${id}.dur: must be above 0`);
+    else if (num(s.t) + s.dur > dur + 1e-6) e.push(`${id}.dur: must end by the end of the scene (${fmt(dur)})`);
+    if (s.rate !== undefined && !(isNum(s.rate) && s.rate > 0 && s.rate < 1)) e.push(`${id}.rate: must be between 0 and 1`);
+    if (num(s.t) < lastEnd - 1e-6) e.push(`${id}.t: time effects can't overlap`);
+    lastEnd = num(s.t) + num(s.dur);
   }
   for (const s of list("audio")) {
     if (!isObj(s)) continue;

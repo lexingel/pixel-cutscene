@@ -2,7 +2,9 @@
 export function confirmDialog(title: string, body: string, okLabel: string, cancelLabel = "Cancel", focusCancel = false): Promise<boolean> {
   const d = document.createElement("dialog");
   d.className = "dialog";
-  d.innerHTML = `<form method="dialog"><h2></h2><p></p><div class="row end">
+  const hid = `dlg-${Math.random().toString(36).slice(2)}`;
+  d.setAttribute("aria-labelledby", hid);
+  d.innerHTML = `<form method="dialog"><h2 id="${hid}"></h2><p></p><div class="row end">
     <button value="cancel" class="btn"></button><button value="ok" class="btn primary"></button></div></form>`;
   d.querySelector("h2")!.textContent = title;
   d.querySelector("p")!.textContent = body;

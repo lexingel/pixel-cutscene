@@ -32,6 +32,9 @@ export function fxName(kit: Kit, assetId: string): string {
 }
 
 /** What to show for any entry id. */
+/** A time effect's bar label: Slow ×0.25, Hold, Hit-stop. */
+export const timeName = (w: { kind: string; dur: number; rate?: number }) => (w.kind === "slow" ? `Slow ×${w.rate ?? 0.25}` : w.dur <= 0.15 ? "Hit-stop" : "Hold");
+
 export function labelOf(tl: Timeline, kit: Kit, id: string): string {
   const shot = tl.shots.find((s) => s.id === id);
   if (shot) return shotName(tl, id);
@@ -43,5 +46,7 @@ export function labelOf(tl: Timeline, kit: Kit, id: string): string {
   const f = tl.fx.find((x) => x.id === id);
   if (f) return fxName(kit, f.fx);
   const s = tl.audio.find((x) => x.id === id);
-  return s ? (s.line ? `${s.clip} “${s.line}”` : s.clip) : id;
+  if (s) return s.line ? `${s.clip} “${s.line}”` : s.clip;
+  const w = tl.time?.find((x) => x.id === id);
+  return w ? timeName(w) : id;
 }

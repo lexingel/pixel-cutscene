@@ -7,7 +7,7 @@ import type { Project } from "../core/project";
 import { pickTrack } from "./music";
 import { actorName, fxName, labelOf } from "../core/labels";
 import { moveLabel } from "../core/moves";
-import { find, moveEntry, resizeEntry, setCamera, setField, setMove, snap, type EditResult } from "./timelineEditor";
+import { find, moveEntry, resizeEntry, setCamera, setField, setMove, shotTransition, snap, type EditResult, type ShotIn } from "./timelineEditor";
 import { catOfTrack } from "./category";
 import { freePath } from "../core/cast";
 import { decode } from "./cast";
@@ -34,17 +34,23 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
   const e = at.e;
   switch (at.kind) {
     case "root":
-      return [{ key: "name", label: "Name", kind: "text" }, NUM("duration", "Length (s)"), NUM("closeup_scale", "Close-up scale", true), { key: "shadows", label: "Ground shadows", kind: "bool", optional: true }];
+      return [{ key: "name", label: "Name", kind: "text" }, NUM("duration", "Length (s)"), NUM("closeup_scale", "Close-up scale", true), { key: "shadows", label: "Ground shadows", kind: "bool", optional: true }, NUM("letterbox", "Cinema bars (px)", true)];
     case "shot":
       return [
         { key: "bg", label: "Background", kind: "select", options: ["", ...assetIds(kit, ["bg", "backdrop"])], optional: true },
-        ...(e.type === "wide" ? [NUM("bg_scale", "Background scale"), NUM("ground", "Ground line (y)", true)] : [
+        ...(e.type === "wide" ? [NUM("bg_scale", "Background scale"), NUM("ground", "Ground line (y)", true),
+          { key: "grade", label: "Light", kind: "select" as Kind, options: ["", "night", "dusk", "cold", "sepia"], optional: true, text: (o: string) => o || "daylight" }, // effects light up what is near them
+          { key: "vignette", label: "Dark corners", kind: "bool" as Kind, optional: true },
+        ] : [
           { key: "face", label: "Face", kind: "select" as Kind, options: uniq([e.face, ...Object.keys(kit.faces), ...tl.actors.map((a) => a.char)]) },
           { key: "expr", label: "Expression", kind: "select" as Kind, options: uniq([e.expr, ...MOODS, ...Object.keys(kit.faces[e.face] ?? {})]) },
         ]),
         NUM("fade_in", "Fade in (s)", true),
         NUM("fade_out", "Fade out (s)", true),
         NUM("flash", "White flash (s)", true),
+        { key: "tr.kind", label: "Comes in by", kind: "select" as Kind, options: ["", "dissolve", "wipe", "iris"], optional: true, text: (o: string) => (o === "dissolve" ? "a dissolve" : o === "wipe" ? "a wipe" : o === "iris" ? "an iris out of black" : "a cut") },
+        ...(e.transition ? [NUM("tr.dur", "Comes in over (s)")] : []),
+        NUM("iris_out", "Iris out at the end (s)", true),
         ...(e.type === "wide" ? [NUM("shake", "Shake (s)", true)] : []),
         ...(e.type === "wide" && e.zoom ? [ // a zoom made from + Shot; clear "zoom from" or "zoom to" to remove it
           NUM("zoom.from", "Zoom from (×)", true), NUM("zoom.to", "Zoom to (×)", true),
@@ -76,6 +82,12 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
     }
     case "fx":
       return [NUM("t", "Start (s)"), NUM("dur", "Length (s)", true), NUM("x", "X"), NUM("y", "Y"), { key: "flip", label: "Faces left", kind: "bool", optional: true }];
+    case "time":
+      return [
+        { key: "kind", label: "Effect", kind: "select", options: ["slow", "hold"], text: (o: string) => (o === "slow" ? "slow motion" : "hold the frame") },
+        NUM("t", "Start (s)"), NUM("dur", "Length (s)"),
+        ...(e.kind === "slow" ? [NUM("rate", "Slowest speed (0-1)")] : []),
+      ];
     case "audio":
       return [
         { key: "clip", label: "Clip", kind: "text" },
@@ -106,6 +118,13 @@ function change(tl: Timeline, id: string, f: Field, raw: string | boolean): Edit
     else z[k] = Number(text);
     return setField(tl, id, "zoom", z);
   }
+  if (f.key.startsWith("tr.")) {
+    const tr = find(tl, id)!.e.transition as Obj | undefined;
+    if (f.key === "tr.kind") return text ? shotTransition(tl, find(tl, id)!.e.start, text as ShotIn, tr?.dur) : setField(tl, id, "transition", undefined);
+    const n = Number(text);
+    if (!(n > 0)) return { tl, error: `${f.label} needs a number above 0.` };
+    return setField(tl, id, "transition", { ...tr, dur: n });
+  }
   if (text === "" && f.optional) return setField(tl, id, f.key, undefined);
   if (f.key === "do") {
     const found = find(tl, id)!;
@@ -125,7 +144,7 @@ function change(tl: Timeline, id: string, f: Field, raw: string | boolean): Edit
   return setField(tl, id, f.key, n);
 }
 
-const valueOf = (e: Obj, key: string) => (key.startsWith("to.") ? e.to?.[Number(key[3])] : key.startsWith("zoom.") ? e.zoom?.[key.slice(5)] : e[key]);
+const valueOf = (e: Obj, key: string) => (key.startsWith("to.") ? e.to?.[Number(key[3])] : key.startsWith("zoom.") ? e.zoom?.[key.slice(5)] : key.startsWith("tr.") ? e.transition?.[key.slice(3)] : e[key]);
 
 export function renderInspector(
   host: HTMLElement, tl: Timeline, selected: string | null, ctx: Ctx,
@@ -389,7 +408,7 @@ function lipSync(p: Project, face: string, expr: string, kitChanged?: () => void
 function cameraKeys(tl: Timeline, id: string, keys: CamKey[], now: () => number, apply: (r: EditResult) => void): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "cam";
-  wrap.innerHTML = `<div class="row between"><span class="small">Camera keys (t, x, y)</span><button class="btn quiet" type="button">+ Key at playhead</button></div>`;
+  wrap.innerHTML = `<div class="row between"><span class="small" title="Or select the shot and drag the picture: that sets the key at the playhead">Camera keys (t, x, y, then on to the next)</span><button class="btn quiet" type="button">+ Key at playhead</button></div>`;
   const set = (next: CamKey[]) => apply(setCamera(tl, id, next));
   keys.forEach((k, i) => {
     const row = document.createElement("div");
@@ -404,6 +423,14 @@ function cameraKeys(tl: Timeline, id: string, keys: CamKey[], now: () => number,
       };
       row.append(inp);
     }
+    const ease = document.createElement("select");
+    ease.setAttribute("aria-label", `camera key ${i + 1} ease`);
+    ease.title = "How the camera goes on to the next key";
+    ease.innerHTML = `<option value="">smooth</option><option value="linear">steady</option><option value="hold">cut</option>`;
+    ease.value = k.ease ?? "";
+    ease.disabled = i === keys.length - 1;
+    ease.onchange = () => set(keys.map((x, j) => (j === i ? { t: x.t, x: x.x, y: x.y, ...(ease.value ? { ease: ease.value as "linear" | "hold" } : {}) } : x)));
+    row.append(ease);
     const del = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: "Remove" });
     del.disabled = keys.length === 1;
     del.onclick = () => set(keys.filter((_, j) => j !== i));

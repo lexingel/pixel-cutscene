@@ -2,7 +2,7 @@ import { pose, shotAt } from "../core/acting";
 import { camAt, round } from "../core/cam";
 import { charFrames } from "../core/frames";
 import { assetStatus, type Img, type Kit } from "../core/kit";
-import type { Actor, FxEntry, Timeline } from "../core/types";
+import type { Actor, CamKey, FxEntry, Timeline } from "../core/types";
 import { find, setField, type EditResult } from "./timelineEditor";
 
 // Direct editing in the preview. Everything here is pure: points are canvas pixels (the camera is applied inside).
@@ -52,6 +52,17 @@ export function hitTest(tl: Timeline, kit: Kit, img: ImgOf, t: number, x: number
   }
   for (const f of fx) if (inside(fxBox(tl, kit, img, t, cam, f)!, x, y)) return f.id;
   return null;
+}
+
+/** The canvas box of what is selected (an actor, the actor of a selected move, or an effect) at t; null when it is not on screen. */
+export function selBox(tl: Timeline, kit: Kit, img: ImgOf, t: number, id: string | null): Box | null {
+  const cam = camNow(tl, t);
+  const at = id && cam ? find(tl, id) : null;
+  if (!at || !cam) return null;
+  if (at.kind === "fx") return fxBox(tl, kit, img, t, cam, at.e as FxEntry);
+  const a = (at.kind === "actor" ? at.e : at.kind === "action" ? at.actor : null) as Actor | null;
+  const q = a && pose(a, t, charFrames(kit, img, false, (p) => img(p) !== null));
+  return a && q?.img ? { id: a.id, x: q.drawX + q.shake - cam.x, y: q.drawY - cam.y, w: q.img.w, h: q.img.h } : null;
 }
 
 /** What a drag on this actor or effect edits: an actor's walk/move under way or last finished at t moves its destination, else the actor. */
@@ -139,4 +150,34 @@ export const GROUND_SNAP = 12;
 /** Feet that land within GROUND_SNAP px of the shot's ground line stand on it. */
 export function snapGround(y: number, ground: number | undefined): number {
   return typeof ground === "number" && Math.abs(y - ground) <= GROUND_SNAP ? ground : y;
+}
+
+/** Camera keys for shot `shotId` that keep `actorId` in the middle across the frame (w wide), linear between keys,
+ * with the camera's height and the background's reach (`extra`, how far the camera can go) kept. Standing still adds no keys. */
+export function followKeys(tl: Timeline, kit: Kit, img: ImgOf, shotId: string, actorId: string, w: number, _h: number, extra: { x: number; y: number }): CamKey[] {
+  const s = tl.shots.find((x) => x.id === shotId), a = tl.actors.find((x) => x.id === actorId);
+  if (!s || s.type !== "wide" || !a) return [];
+  const frames = charFrames(kit, img, false, (p) => img(p) !== null);
+  const step = 0.1, pts: CamKey[] = [];
+  for (let t = s.start; t < s.end + step / 2; t += step) {
+    const at = Math.min(t, s.end), q = pose(a, at, frames);
+    const x = Math.min(Math.max(round((q?.feet.x ?? a.x) - w / 2), 0), Math.max(extra.x, 0));
+    pts.push({ t: Math.round(at * 1000) / 1000, x, y: camAt(s.camera, at).y });
+  }
+  // keep only the points where the motion changes (within a pixel): Ramer–Douglas–Peucker on x over time
+  const keep = new Set([0, pts.length - 1]);
+  const rdp = (i: number, j: number) => {
+    let far = -1, d = 1;
+    for (let k = i + 1; k < j; k++) {
+      const e = Math.abs(pts[k].x - (pts[i].x + ((pts[j].x - pts[i].x) * (pts[k].t - pts[i].t)) / (pts[j].t - pts[i].t)));
+      if (e > d) (d = e), (far = k);
+    }
+    if (far < 0) return;
+    keep.add(far);
+    rdp(i, far);
+    rdp(far, j);
+  };
+  rdp(0, pts.length - 1);
+  const ks = pts.filter((_, i) => keep.has(i));
+  return ks.map((k, i) => (i < ks.length - 1 ? { ...k, ease: "linear" as const } : k));
 }

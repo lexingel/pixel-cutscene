@@ -11,11 +11,13 @@ export type Project = {
   name: string;
   step: 1 | 2 | 3 | 4; // 1 Cast, 2 Scene, 3 Tweak, 4 Export (stored numbers; the bar shows Scene first)
   description: string;
+  beats?: string; // the planned beat list (two-step draft), as the user left it
   tl: Timeline | null;
   kit: Kit;
   cast: Record<string, CastNeed>; // characters the scene asked for (old projects: {})
   files: Map<string, Blob>;
   canvas: { W: number; H: number; exportScale: number };
+  lockedRows?: string[]; // timeline rows (actor ids, "fx", "audio") whose bars don't move or delete
 };
 
 /** Scene sizes, each a whole-number scale of 1920x1080: smaller = chunkier pixels and bigger characters. */

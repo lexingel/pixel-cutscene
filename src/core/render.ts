@@ -7,6 +7,7 @@ import { mouthAt } from "./mouth";
 import { blit, crop, fade, fill } from "./raster";
 import { bubblesAt, drawBox, drawBubble } from "./bubbles";
 import type { FxEntry, Shot, Timeline } from "./types";
+import { sceneTime } from "./timewarp";
 
 export type RenderInput = {
   tl: Timeline;
@@ -88,6 +89,50 @@ function shadow(out: Img, x: number, y: number, h: number, k: number): void {
 
 /** One frame at time t, a pure function of (timeline, kit, t). Mirrors stage.gd seek(). */
 export function renderFrame(p: RenderInput, t: number, out: Img): void {
+  const { tl, draft } = p;
+  const outT = Math.min(Math.max(t, 0), tl.duration);
+  t = sceneTime(tl, outT); // a time effect picks which moment is on screen
+  const shot = shotAt(tl, t);
+  drawShot(p, shot, t, out);
+
+  const into = t - shot.start, left = shot.end - t;
+  // how the shot comes in: from the shot before (dissolve, wipe) or out of black (iris); hard pixel edges, no new colours
+  const tr = shot.transition, i = tl.shots.indexOf(shot);
+  if (tr && into < tr.dur) {
+    const k = into / tr.dur;
+    if (tr.kind === "iris") iris(out, k);
+    else if (i > 0) {
+      const prev: Img = { w: out.w, h: out.h, px: new Uint8ClampedArray(out.px.length) };
+      drawShot(p, tl.shots[i - 1], t, prev);
+      for (let y = 0; y < out.h; y++)
+        for (let x = 0; x < out.w; x++) {
+          const showNew = tr.kind === "wipe" ? x < k * out.w : (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16 < k;
+          if (!showNew) for (let c = 0, j = (y * out.w + x) * 4; c < 4; c++) out.px[j + c] = prev.px[j + c];
+        }
+    }
+  }
+  if ((shot.iris_out ?? 0) > 0 && left < shot.iris_out!) iris(out, left / shot.iris_out!);
+  const aIn = (shot.fade_in ?? 0) > 0 ? 1 - into / shot.fade_in! : 0;
+  const aOut = (shot.fade_out ?? 0) > 0 ? 1 - left / shot.fade_out! : 0;
+  fade(out, Math.min(Math.max(aIn, aOut, 0), 1));
+  const aFlash = (shot.flash ?? 0) > 0 ? 1 - into / shot.flash! : 0;
+  if (aFlash > 0) for (let j = 0; j < out.px.length; j += 4) for (let c = 0; c < 3; c++) out.px[j + c] += (255 - out.px[j + c]) * aFlash;
+  const bar = Math.min(tl.letterbox ?? 0, out.h >> 1) * out.w * 4; // cinema bars over everything but the draft mark
+  if (bar) for (const [a, b] of [[0, bar], [out.px.length - bar, out.px.length]]) for (let j = a; j < b; j += 4) out.px.fill(0, j, j + 3);
+  if (draft && p.mark !== false && !frameZoom(p, outT)) watermark(out); // a zoomed frame gets its mark after the zoom (exporter), at its normal size
+}
+
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]; // 4x4 ordered dither thresholds
+/** Black outside a circle in the middle whose radius is k of the way to the corners. */
+function iris(out: Img, k: number): void {
+  const cx = out.w / 2, cy = out.h / 2, r2 = (k * Math.hypot(cx, cy)) ** 2;
+  for (let y = 0; y < out.h; y++)
+    for (let x = 0; x < out.w; x++)
+      if ((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 > r2) out.px.fill(0, (y * out.w + x) * 4, (y * out.w + x) * 4 + 3);
+}
+
+/** One shot's picture at scene time t: background, actors, effects and speech (no fades or transitions). */
+function drawShot(p: RenderInput, shot: Shot, t: number, out: Img): void {
   const { tl, kit, draft } = p;
   const has = (path: string) => p.img(path) !== null;
   const asset = (id: string) => (assetStatus(kit, id, draft, has) === "ok" ? kit.assets[id] : null);
@@ -95,10 +140,7 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
     const a = asset(id);
     return a ? p.img(a.path) : null;
   };
-  t = Math.min(Math.max(t, 0), tl.duration);
   fill(out, [0, 0, 0, 255]);
-  const shot = shotAt(tl, t);
-
   if (shot.type === "closeup") {
     const bd = assetImg(shot.bg ?? "");
     if (bd) {
@@ -140,7 +182,9 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
       } else blit(out, img, x, y, 1, q!.flip);
     }
 
-    for (const f of tl.fx) drawFx(p, f as FxLive, t, cam, out, asset);
+    const fx = tl.fx.flatMap((f) => fxFrame(p, f as FxLive, t, cam, asset) ?? []);
+    if (shot.grade || shot.vignette) light(out, shot.grade, shot.vignette, shot.grade ? fx.map((f) => ({ x: f.x + f.img.w / 2, y: f.y + f.img.h / 2 })) : []);
+    for (const f of fx) blit(out, f.img, f.x, f.y, 1, f.flip); // effects glow: drawn over the grade
     // speech over everything in the scene: a bubble over the speaker's head (top of the sprite, else 40 px over the feet)
     for (const b of bubblesAt(tl, t, kit)) {
       const a = b.style === "bubble" && b.actor ? tl.actors.find((x) => x.id === b.actor) : undefined;
@@ -149,14 +193,6 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
       else drawBox(out, b);
     }
   }
-
-  const into = t - shot.start, left = shot.end - t;
-  const aIn = (shot.fade_in ?? 0) > 0 ? 1 - into / shot.fade_in! : 0;
-  const aOut = (shot.fade_out ?? 0) > 0 ? 1 - left / shot.fade_out! : 0;
-  fade(out, Math.min(Math.max(aIn, aOut, 0), 1));
-  const aFlash = (shot.flash ?? 0) > 0 ? 1 - into / shot.flash! : 0;
-  if (aFlash > 0) for (let j = 0; j < out.px.length; j += 4) for (let c = 0; c < 3; c++) out.px[j + c] += (255 - out.px[j + c]) * aFlash;
-  if (draft && p.mark !== false && !frameZoom(p, t)) watermark(out); // a zoomed frame gets its mark after the zoom (exporter), at its normal size
 }
 
 /** The zoom at t in this shot (1 when it has none). */
@@ -172,7 +208,7 @@ export const actorFocus = (q: { drawX: number; drawY: number; img: Img }, cam: {
 export function frameZoom(p: RenderInput, t: number): { z: number; x: number; y: number } | null {
   const { tl } = p;
   if (!tl.shots.length) return null;
-  t = Math.min(Math.max(t, 0), tl.duration);
+  t = sceneTime(tl, Math.min(Math.max(t, 0), tl.duration)); // output time in, like renderFrame
   const s = shotAt(tl, t);
   const z = zoomAt(s, t);
   if (s.type !== "wide" || !s.zoom || z === 1) return null;
@@ -193,20 +229,50 @@ export const newFxDur = (meta: FxMeta): number | undefined => (meta.loop ? LOOP_
 export const fxEnd = (f: { t: number; dur?: number }, meta: FxMeta, sceneEnd: number): number =>
   f.dur !== undefined ? f.t + f.dur : meta.loop ? sceneEnd : f.t + meta.frames / (meta.fps || ANIM_FPS);
 
-function drawFx(
-  p: RenderInput, f: FxLive, t: number, cam: { x: number; y: number }, out: Img,
+const GRADES: Record<string, (r: number, g: number, b: number) => [number, number, number]> = {
+  night: (r, g, b) => [r * 0.3, g * 0.4, b * 0.7 + 12],
+  dusk: (r, g, b) => [r * 0.95 + 8, g * 0.68, b * 0.62],
+  cold: (r, g, b) => [r * 0.72, g * 0.86, b + 10],
+  sepia: (r, g, b) => {
+    const l = 0.3 * r + 0.59 * g + 0.11 * b;
+    return [l * 1.07 + 12, l * 0.9 + 6, l * 0.66];
+  },
+};
+const LIGHT_R = 40; // how far an effect lights a graded scene, in pixels
+/** The grade (one colour to one colour), less where an effect is near (the inner part fully, then a dither), then the vignette. */
+function light(out: Img, grade: string | undefined, vignette: boolean | undefined, lights: { x: number; y: number }[]): void {
+  const g = grade ? GRADES[grade] : null, cx = out.w / 2, cy = out.h / 2;
+  for (let y = 0; y < out.h; y++)
+    for (let x = 0; x < out.w; x++) {
+      const j = (y * out.w + x) * 4, th = (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
+      if (g) {
+        let lit = 0;
+        for (const l of lights) lit = Math.max(lit, Math.min(1, 1.5 * (1 - Math.hypot(x + 0.5 - l.x, y + 0.5 - l.y) / LIGHT_R)));
+        if (lit <= th) {
+          const c = g(out.px[j], out.px[j + 1], out.px[j + 2]);
+          for (let k = 0; k < 3; k++) out.px[j + k] = Math.round(c[k]);
+        }
+      }
+      if (vignette && (Math.hypot((x + 0.5 - cx) / cx, (y + 0.5 - cy) / cy) - 0.8) / 0.45 > th)
+        for (let k = 0; k < 3; k++) out.px[j + k] = Math.round(out.px[j + k] * 0.55);
+    }
+}
+
+/** An effect's picture at t and where it goes on the frame; null while it is not showing. */
+function fxFrame(
+  p: RenderInput, f: FxLive, t: number, cam: { x: number; y: number },
   asset: (id: string) => Kit["assets"][string] | null,
-): void {
+): { img: Img; x: number; y: number; flip: boolean } | null {
   const a = asset(f.fx);
   const meta = a?.fx;
   const sheet = a && meta ? p.img(a.path) : null;
-  if (!a || !meta || !sheet) return;
+  if (!a || !meta || !sheet) return null;
   const i = Math.floor((t - f.t) * (meta.fps || ANIM_FPS) + 0.0001);
   const within = f.dur === undefined || t < f.t + f.dur;
-  if (i < 0 || !within || !(meta.loop || i < meta.frames || f.hold)) return;
+  if (i < 0 || !within || !(meta.loop || i < meta.frames || f.hold)) return null;
   const n = meta.loop ? ((i % meta.frames) + meta.frames) % meta.frames : Math.min(i, meta.frames - 1);
   const fw = sheet.w / meta.cols, fh = sheet.h / Math.ceil(meta.frames / meta.cols);
   const frame = crop(sheet, (n % meta.cols) * fw, Math.floor(n / meta.cols) * fh, fw, fh);
   const ox = f.flip ? fw - 1 - meta.dx : meta.dx; // mirrored about the origin column
-  blit(out, frame, round(f.x) - ox - cam.x, round(f.y) - meta.dy - cam.y, 1, !!f.flip);
+  return { img: frame, x: round(f.x) - ox - cam.x, y: round(f.y) - meta.dy - cam.y, flip: !!f.flip };
 }

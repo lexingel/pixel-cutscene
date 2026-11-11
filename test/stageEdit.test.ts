@@ -78,3 +78,12 @@ test("drags_of_feet_snap_to_the_ground_effects_do_not", () => {
   expect(moveBy(t0, { id: "f1", key: "pos" }, 0, 3, 75).tl.fx[0].y).toBe(73);
   expect(groundAt(tl(), 1)).toBeUndefined();
 });
+
+import { selBox } from "../src/ui/stageEdit";
+test("selBox: the selected actor's drawn box, also when one of its moves is selected; null for what is not on screen", () => {
+  // "back" stands at feet (50, 60) with a 10x20 sprite: x 45..55, y 40..60
+  expect(selBox(tl(), kit, img, 0, "back")).toEqual({ id: "back", x: 45, y: 40, w: 10, h: 20 });
+  expect(selBox(tl(), kit, img, 0, "a1")?.id).toBe("front"); // a move: its actor's box
+  expect(selBox(tl(), kit, img, 0, "s1")).toBeNull(); // a shot has no box
+  expect(selBox(tl(), kit, img, 0, null)).toBeNull();
+});

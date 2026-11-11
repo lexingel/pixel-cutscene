@@ -44,7 +44,7 @@ export const EXAMPLE_REPLY = {
 const list = (xs: string[]) => (xs.length ? xs.join(", ") : "(none)");
 
 // effects that read on their own in a scene ("moves" carry their own stock fighter, "ui" is game HUD)
-const library = () => {
+export const library = () => {
   const by = new Map<string, string[]>();
   for (const f of FX_LIST) if (f.category !== "moves" && f.category !== "ui") by.set(f.category, [...(by.get(f.category) ?? []), f.id.split("/")[1]]);
   return [...by].sort(([a], [b]) => a.localeCompare(b)).map(([c, names]) => `${c}: ${names.sort().join(" ")}`).join("\n");

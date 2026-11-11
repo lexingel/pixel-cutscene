@@ -2,6 +2,7 @@ import { sceneWidth } from "./pixelfit";
 import { confirmPaid } from "../ai/confirm";
 import { getKeys } from "../ai/keys";
 import { draftScene } from "../ai/sceneDraft";
+import { beatsToText, draftBeats, withBeats } from "../ai/beats";
 import { mergeCast, pendingChars } from "../core/cast";
 import { readyChars } from "../core/kit";
 import { bakeDraftFx } from "../core/fxLibrary";
@@ -62,8 +63,11 @@ export function renderScene(root: HTMLElement, p: Project, changed: () => void, 
     <label class="scene-size">Scene size <select data-act="size"></select><span class="small"></span></label></figure>
     <label class="scene-text">What happens in your cutscene? <textarea rows="8" data-testid="scene-text" placeholder="Three heroes walk into a cave. A ghost appears and they freeze..."></textarea></label>
     <div class="row"><button class="btn primary" type="button" data-act="draft">Draft it</button>
-    <button class="btn" type="button" data-act="own">Write it myself</button></div>
+    <button class="btn" type="button" data-act="own">Write it myself</button>
+    <button class="btn quiet" type="button" data-act="beats" title="First a short numbered list of what happens, to read and change; then the timeline from it">Plan the beats first</button></div>
     <p class="hint" data-testid="scene-hint"></p>
+    <div class="beats" hidden><label class="scene-text">The beats, in order (change them freely: one per line) <textarea rows="6" data-testid="beats"></textarea></label>
+    <div class="row"><button class="btn primary" type="button" data-act="from-beats">Draft the timeline from these beats</button></div></div>
     <p class="starter" hidden>No sprites yet? <button class="btn quiet" type="button" data-act="starter">Use the starter pack</button>
     <span class="small">a knight, a ranger, a dusk background, a campfire and calm music, free to use</span></p></section>`;
   const text = root.querySelector<HTMLTextAreaElement>("textarea")!;
@@ -152,16 +156,47 @@ export function renderScene(root: HTMLElement, p: Project, changed: () => void, 
     changed();
     go(3);
   };
-  draft.onclick = async () => {
+  // step one of the two-step draft: a beat list to read and change (kept with the project)
+  const beatsBtn = root.querySelector<HTMLButtonElement>("[data-act=beats]")!;
+  const beatsBox = root.querySelector<HTMLElement>(".beats")!;
+  const beatsText = beatsBox.querySelector<HTMLTextAreaElement>("textarea")!;
+  const fromBeats = beatsBox.querySelector<HTMLButtonElement>("[data-act=from-beats]")!;
+  const busy = (on: boolean) => {
+    for (const b of [draft, own, beatsBtn, fromBeats]) b.disabled = on;
+    text.disabled = beatsText.disabled = on;
+    if (!on) sync();
+  };
+  beatsBtn.hidden = !hasKey;
+  beatsText.value = p.beats ?? "";
+  beatsBox.hidden = !hasKey || !p.beats;
+  beatsText.oninput = () => ((p.beats = beatsText.value), changed());
+  beatsBtn.onclick = async () => {
+    const keys = getKeys();
+    if (!keys.ai || !text.value.trim()) return void (hint.textContent = "Write what happens first, then plan its beats.");
+    const ticket = await confirmPaid(keys.ai.provider, "plan the beats", "1 call: a short numbered list of what happens.", 1);
+    if (!ticket) return;
+    busy(true);
+    hint.textContent = "Planning the beats...";
+    const r = await draftBeats(keys, p.kit, p.description, ticket);
+    busy(false);
+    if (!r.ok) return void ((hint.textContent = `The plan failed: ${r.error}`), toast("The beat plan failed.", "error"));
+    p.beats = beatsText.value = beatsToText(r.beats);
+    beatsBox.hidden = false;
+    hint.textContent = "Read the beats, change what you like, then draft the timeline from them.";
+    changed();
+    beatsText.focus();
+  };
+  fromBeats.onclick = () => (beatsText.value.trim() ? runDraft(withBeats(p.description, beatsText.value)) : void (hint.textContent = "The beat list is empty."));
+  draft.onclick = () => runDraft(p.description);
+  async function runDraft(description: string) {
     const keys = getKeys();
     if (!keys.ai) return;
     const ticket = await confirmPaid(keys.ai.provider, "draft scene", "About 1 call, 2 if it needs a repair.", 2);
     if (!ticket) return;
-    draft.disabled = own.disabled = text.disabled = true;
+    busy(true);
     hint.textContent = "Drafting your scene...";
-    const r = await draftScene(keys, p.kit, p.canvas, p.description, p.tl, ticket, undefined, await sceneScale(p));
-    draft.disabled = own.disabled = text.disabled = false;
-    sync();
+    const r = await draftScene(keys, p.kit, p.canvas, description, p.tl, ticket, undefined, await sceneScale(p));
+    busy(false);
     if (!r.ok) {
       hint.textContent = `The draft failed: ${r.error}. Your current timeline is unchanged.`;
       return toast("The scene draft failed.", "error");
@@ -172,5 +207,5 @@ export function renderScene(root: HTMLElement, p: Project, changed: () => void, 
     await bakeDraftFx(p).catch(() => toast("Some effects could not be prepared; they wait in Needs approval.", "error"));
     changed();
     go(pendingChars(p).length ? 1 : 3);
-  };
+  }
 }

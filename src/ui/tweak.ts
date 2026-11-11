@@ -3,7 +3,7 @@ import { catOfTrack, type Cat } from "./category";
 import { framingIssues, type FrameIssue } from "../core/framing";
 import { sceneNotes } from "../core/pacing";
 import { animStatus, assetStatus, type Img } from "../core/kit";
-import { actorName, fxName, labelOf, shotName } from "../core/labels";
+import { actorName, fxName, labelOf, shotName, timeName } from "../core/labels";
 import { moveLabel } from "../core/moves";
 import { missingReport } from "../core/missing";
 import type { Project } from "../core/project";
@@ -12,25 +12,28 @@ import { unzoom, zoomFrame, zoomView } from "../core/raster";
 import { actionSpan, downAt, pose, shotAt } from "../core/acting";
 import { charFrames } from "../core/frames";
 import { validateTimeline } from "../core/timeline";
-import type { Actor, Timeline } from "../core/types";
+import type { Actor, CamKey, Timeline } from "../core/types";
 import { decodeAudio } from "../export/audioMix";
 import { loadTracks, useTrack } from "./music";
 import { renderDrawer, droppedItem, knownItem, isItemDrag, type DrawerItem, type DropAt } from "./drawer";
 import { addLibraryFx, loadFx, rebakeFx } from "../core/fxLibrary";
-import { aimAngle, aimHandle, camNow, dragTarget, ghostAt, groundAt, hitTest, moveBy, nudgeTarget, onAimHandle, snapGround, walks, type Target } from "./stageEdit";
+import { selBox, followKeys, aimAngle, aimHandle, camNow, dragTarget, ghostAt, groundAt, hitTest, moveBy, nudgeTarget, onAimHandle, snapGround, walks, type Target } from "./stageEdit";
 import { readyChars } from "../core/kit";
 import { renderApprovals } from "./approvals";
 import { addMove, changeMove } from "./addMove";
 import { decode } from "./cast";
 import { toast } from "./dialogs";
 import { renderInspector } from "./inspector";
+import { openDialogue } from "./dialogue";
+import { openStoryboard } from "./storyboard";
 import { emptyTimeline } from "./scene";
 import type { Step } from "./steps";
 import {
-  FPS, History, addAction, addEntry, deleteEntry, find, lanes, moveEntry, moveShotEdge, newId, playhead, resizeEntry, setField, snap, splitShot, trimStart, copyEntry, pasteEntry, type Clip, insertShot, panShot, transition, type EditResult,
+  FPS, History, addAction, addEntry, deleteEntry, find, lanes, moveEntry, moveShotEdge, newId, playhead, resizeEntry, setField, snap, splitShot, trimStart, copyMany, pasteMany, moveMany, deleteMany, applyToOthers, type Clip, insertShot, panShot, transition, shotTransition, addTimeFx, camKeyAt, setCamera, type EditResult,
 } from "./timelineEditor";
 
 const ACTIONS_MENU = ["walk", "move", "look_around", "startle", "hurt", "dust", "say"];
+const LABEL_W = 112; // the track names column; keep in step with --label in style.css
 const pct = (x: number) => `${(x * 100).toFixed(4)}%`;
 const ICON_PLAY = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>`;
 const ICON_PAUSE = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z" fill="currentColor"/></svg>`;
@@ -43,7 +46,7 @@ export const clock = (s: number) => {
   return `${String(Math.floor(c / 6000)).padStart(2, "0")}:${((c % 6000) / 100).toFixed(2).padStart(5, "0")}`;
 };
 
-let clipboard: Clip | null = null; // Ctrl+C / Ctrl+V; kept while the tab is open, across projects
+let clipboard: Clip[] | null = null; // Ctrl+C / Ctrl+V; kept while the tab is open, across projects
 
 export function renderTweak(root: HTMLElement, p: Project, changed: () => void, go: (n: Step) => void): void {
   if (!p.tl) {
@@ -64,6 +67,21 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   const hist = new History();
   let t = 0;
   let selected: string | null = null;
+  const multi = new Set<string>(); // more bars selected with Shift/Ctrl+click, besides `selected`
+  const isSel = (id: string) => id === selected || multi.has(id);
+  const group = () => [...new Set([selected, ...multi].filter((x): x is string => !!x))];
+  // a locked row: its bars still select, but they don't move, paste or delete (kept with the project)
+  const rowOf = (id: string) => {
+    const at = find(tl(), id);
+    return at?.kind === "action" ? (at.actor.id as string) : at?.kind === "actor" ? (at.e.id as string) : at?.kind === "fx" ? "fx" : at?.kind === "audio" ? "audio" : null;
+  };
+  const rowLocked = (row: string | null) => !!row && (p.lockedRows ?? []).includes(row);
+  const rowName = (r: string) => (r === "fx" ? "Effects" : r === "audio" ? "Audio" : actorName(tl(), r));
+  const refuseRows = (rows: (string | null)[]) => {
+    const r = rows.find(rowLocked);
+    if (r) toast(`The ${rowName(r)} row is locked. Unlock it with its padlock first.`, "error");
+    return !!r;
+  };
   let playing = false;
 
   root.innerHTML = `
@@ -84,6 +102,8 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       <button class="btn quiet" type="button" data-act="shot" aria-haspopup="menu" aria-expanded="false" title="Add a shot or a transition at the playhead">+ Shot ▾</button>
       <span class="brk" aria-hidden="true"></span>
       <span class="scale-line" data-testid="scale-line"></span>
+      <button class="btn quiet" type="button" data-act="storyboard" title="Every shot as a picture: jump to one, or drag it to a new place">Storyboard</button>
+      <button class="btn quiet" type="button" data-act="dialogue" title="Every line of the scene in one list: who says what, spoken or not">Dialogue</button>
       <span class="status" data-testid="status"></span>
       <button class="btn primary" type="button" data-act="next">Next: Export</button>
     </div>
@@ -176,8 +196,8 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     if (!playing) say(T); // read out where a stopped playhead is, never every frame of playback
     tracks.style.setProperty("--p", String(t / T.duration));
     if (playing && zoom > 1) { // a zoomed strip follows the playhead
-      const x = 92 + 10 + ((tracks.scrollWidth - 92) - 20) * (t / T.duration) - tracks.scrollLeft;
-      if (x < 92 || x > tracks.clientWidth - 20) tracks.scrollLeft += x - 92 - 20;
+      const x = LABEL_W + 10 + ((tracks.scrollWidth - LABEL_W) - 20) * (t / T.duration) - tracks.scrollLeft;
+      if (x < LABEL_W || x > tracks.clientWidth - 20) tracks.scrollLeft += x - LABEL_W - 20;
     }
     // only when it changes: rebuilding the icon every frame swallowed clicks that landed on it
     if (playBtn.dataset.state !== String(playing)) {
@@ -294,13 +314,20 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   playBtn.onclick = () => (playing ? pause() : play());
 
   // ---- edits: every change goes through a pure op, then into the undo stack
-  function commit(r: EditResult, select?: string | null) {
+  /** `select`: one id, null, or a list (the first becomes the main selection, the rest stay selected with it). */
+  function commit(r: EditResult, select?: string | null | string[]) {
     if (r.error) {
       toast(r.error, "error");
       draw();
       return;
     }
-    if (select !== undefined) selected = select;
+    if (select !== undefined) {
+      multi.clear();
+      if (Array.isArray(select)) {
+        selected = select[0] ?? null;
+        select.slice(1).forEach((x) => multi.add(x));
+      } else selected = select;
+    }
     if (r.tl !== p.tl) {
       hist.push(tl());
       p.tl = r.tl;
@@ -312,12 +339,21 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     if (!to) return;
     p.tl = to;
     if (selected && !find(to, selected)) selected = null;
+    for (const x of multi) if (!find(to, x)) multi.delete(x);
     changed();
     draw();
   }
   $<HTMLButtonElement>("[data-act=undo]").onclick = () => travel(hist.undo(tl()));
   $<HTMLButtonElement>("[data-act=redo]").onclick = () => travel(hist.redo(tl()));
   $<HTMLButtonElement>("[data-act=next]").onclick = () => go(4);
+  $<HTMLButtonElement>("[data-act=storyboard]").onclick = () =>
+    openStoryboard(tl, (T, at) => {
+      const o: Img = { w: W, h: H, px: new Uint8ClampedArray(W * H * 4) };
+      renderFrame({ tl: T, kit: p.kit, img: (k: string) => imgs.get(k) ?? null, draft: false, W, H }, at, o);
+      return o;
+    }, (r) => commit(r), (at) => seek(at));
+  $<HTMLButtonElement>("[data-act=dialogue]").onclick = () =>
+    tl().actors.length ? openDialogue(tl(), p.kit, t, (r) => commit(r, null)) : toast("Add a character first: dialogue belongs to someone.", "error");
   // A 2 s close-up on actor a at `at`: a zoom on them, sized so they fill most of the frame's height. Null off a wide shot.
   function focusAt(T: Timeline, a: Actor, at: number) {
     const cam = camNow(T, at);
@@ -361,6 +397,18 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     items.push(["Fade out to black", () => transition(T, at, "fade_out")]);
     items.push(["White flash", () => transition(T, at, "flash")]);
     items.push(["Shake", wideOnly(() => transition(T, at, "shake"))]);
+    for (const a of T.actors) items.push([`Camera follows ${actorName(T, a.id)} (this shot)`, wideOnly(() => {
+      const ks = followKeys(T, p.kit, imgOf, sh!.id, a.id, W, H, extra);
+      return ks.length ? { ...setCamera(T, sh!.id, ks), id: sh!.id } : { tl: T, error: "Nothing to follow here." };
+    })]);
+    items.push([T.letterbox ? "Remove the cinema bars" : "Cinema bars (top and bottom)", () => setField(T, "(root)", "letterbox", T.letterbox ? undefined : Math.round(H * 0.12))]);
+    items.push(["Dissolve in from the shot before", () => shotTransition(T, at, "dissolve")]);
+    items.push(["Wipe in from the shot before", () => shotTransition(T, at, "wipe")]);
+    items.push(["Iris in (a circle opens from black)", () => shotTransition(T, at, "iris")]);
+    items.push(["Iris out at the shot's end", () => shotTransition(T, at, "iris_out")]);
+    items.push(["Slow motion here (1 s)", () => addTimeFx(T, at, "slow")]);
+    items.push(["Hold the frame here (0.5 s)", () => addTimeFx(T, at, "hold")]);
+    items.push(["Hit-stop here (3 frames)", () => addTimeFx(T, at, "hitstop")]);
     popMenu(shotBtn, "Shots and transitions", items.map(([label, run]) => [label, () => {
       const r = run();
       if (r.error) return toast(r.error, "error");
@@ -476,6 +524,32 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     if (!cam || !found || playing) return;
     o.fillStyle = o.strokeStyle = "#f5b94a";
     o.lineWidth = 1 / (view?.P ?? 1);
+    if (found.kind === "shot" && found.e.type === "wide") {
+      // the camera's path: where the middle of the frame goes, key by key (a drag on the picture sets the key at the playhead)
+      const pts = (found.e.camera as CamKey[]).map((k) => ({ x: Math.round(k.x - cam.x + W / 2), y: Math.round(k.y - cam.y + H / 2), now: Math.abs(k.t - snap(t)) < 1e-6 }));
+      for (let i = 1; i < pts.length; i++) {
+        const [a, b] = [pts[i - 1], pts[i]], n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+        for (let j = 0; j <= n; j += 3) o.fillRect(Math.round(a.x + ((b.x - a.x) * j) / (n || 1)), Math.round(a.y + ((b.y - a.y) * j) / (n || 1)), 1, 1);
+      }
+      for (const q of pts) q.now ? o.fillRect(q.x - 2, q.y - 2, 5, 5) : o.strokeRect(q.x - 1.5, q.y - 1.5, 4, 4);
+      o.strokeRect(W / 2 - 3.5, H / 2 + 0.5, 8, 0); // the frame's middle now
+      o.strokeRect(W / 2 + 0.5, H / 2 - 3.5, 0, 8);
+    }
+    // a box around everything selected that is on screen: what a drag on the preview moves
+    const boxes = new Map<string, NonNullable<ReturnType<typeof selBox>>>();
+    for (const id of group()) {
+      const b = selBox(T, p.kit, imgOf, t, id);
+      if (b) boxes.set(b.id, b);
+    }
+    for (const b of boxes.values()) {
+      const [x, y, w, h] = [b.x - 2, b.y - 2, b.w + 3, b.h + 3];
+      o.strokeRect(x + 0.5, y + 0.5, w, h);
+      const k = Math.min(4, Math.floor(Math.min(w, h) / 3)); // corner ticks: reads as a selection, not a sprite edge
+      for (const [cx, cy, sx, sy] of [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]] as const) {
+        o.fillRect(sx > 0 ? cx : cx - k + 1, cy, k, 1);
+        o.fillRect(cx, sy > 0 ? cy : cy - k + 1, 1, k);
+      }
+    }
     const actor = found.kind === "actor" ? (found.e as Actor) : found.kind === "action" ? (found.actor as Actor) : null;
     if (actor) {
       for (const w of walks(T, p.kit, imgOf, actor)) {
@@ -518,6 +592,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
         commit({ tl: T0 }, ghost);
       } else {
         const hit = hitTest(T0, p.kit, imgOf, t, c.x, c.y);
+        if (!hit && sel?.kind === "shot" && sel.e.id === shotAt(T0, t).id) return panCamera(e, T0, cam, c, v0); // the shot is selected: the drag moves its camera
         commit({ tl: T0 }, hit);
         if (hit) target = dragTarget(T0, hit, t);
       }
@@ -556,6 +631,28 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     };
   };
 
+  // Dragging the picture of a selected wide shot sets its camera key at the playhead (the picture follows the pointer).
+  function panCamera(e: PointerEvent, T0: Timeline, cam: { x: number; y: number }, c: { x: number; y: number }, v0: typeof view) {
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    dragging = true;
+    const at = (m: PointerEvent) => {
+      const q = canvasPt(m, v0);
+      return camKeyAt(T0, t, cam.x - (q.x - c.x), cam.y - (q.y - c.y));
+    };
+    const end = () => ((dragging = false), (canvas.onpointermove = canvas.onpointerup = canvas.onpointercancel = null));
+    canvas.onpointermove = (m) => ((p.tl = at(m).tl), paint());
+    canvas.onpointercancel = () => (end(), (p.tl = T0), paint());
+    canvas.onpointerup = (u) => {
+      end();
+      const r = at(u);
+      p.tl = T0;
+      if (r.error) return void (toast(r.error, "error"), draw());
+      if (JSON.stringify(r.tl) === JSON.stringify(T0)) return paint();
+      commit(r, r.id);
+    };
+  }
+
   // ---- keys (dropped once this page is gone)
   const keys = new AbortController();
   document.addEventListener(
@@ -569,26 +666,21 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       const nudge = !mod && document.activeElement === canvas ? nudgeTarget(tl(), selected, t) : null; // preview focused + something movable selected
       if (mod && e.key.toLowerCase() === "z") travel(e.shiftKey ? hist.redo(tl()) : hist.undo(tl()));
       else if (mod && e.key.toLowerCase() === "y") travel(hist.redo(tl()));
-      else if (mod && e.key.toLowerCase() === "c" && selected) {
-        if (!(clipboard = copyEntry(tl(), selected) ?? clipboard)) return;
-        toast("Copied. Select an actor (or one of its moves) and press Ctrl+V to paste at the playhead.");
-      } else if (mod && e.key.toLowerCase() === "v" && clipboard) {
-        const at = selected ? find(tl(), selected) : null;
-        const actor = at?.kind === "actor" ? at.e.id : at?.kind === "action" ? at.actor.id : undefined;
-        const r = pasteEntry(tl(), clipboard, t, actor);
-        commit(r, r.id ?? selected);
-      }
+      else if (mod && e.key.toLowerCase() === "c" && selected) copySel();
+      else if (mod && e.key.toLowerCase() === "v" && clipboard) pasteHere();
       else if (e.key === " ") {
         tgt.blur?.(); // keep a focused button from also taking the press
         playing ? pause() : play();
       } else if (e.key === "Escape" && selected) {
         selected = null;
+        multi.clear();
+        (document.activeElement as HTMLElement | null)?.closest?.<HTMLElement>(".clip")?.blur(); // a redraw would refocus it, and focus selects
         draw();
       } else if (e.altKey && selected && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-        const at = find(tl(), selected);
-        if (!at || at.kind === "shot" || !("t" in at.e)) return;
+        const ids = group().filter((id) => { const at = find(tl(), id); return !!at && at.kind !== "shot" && at.kind !== "root"; });
+        if (!ids.length || refuseRows(ids.map(rowOf))) return;
         const step = (e.shiftKey ? 1 : 1 / FPS) * (e.key === "ArrowLeft" ? -1 : 1);
-        commit(moveEntry(tl(), selected, Math.max(0, Number(at.e.t) + step)), selected);
+        commit(moveMany(tl(), ids, step), ids);
       } else if (e.key === "?") showKeys();
       else if (nudge && ARROWS[e.key]) {
         const [dx, dy] = ARROWS[e.key];
@@ -606,7 +698,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
         const at = find(tl(), selected);
         const t0 = at && "t" in at.e ? Number(at.e.t) : NaN;
         if (t > t0) commit(resizeEntry(tl(), selected, t - t0));
-      } else if ((e.key === "Delete" || e.key === "Backspace") && selected) commit(deleteEntry(tl(), selected), null);
+      } else if ((e.key === "Delete" || e.key === "Backspace") && selected) delSel();
       else return;
       e.preventDefault();
     },
@@ -620,8 +712,11 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     ["Tab", "Go through the bars; the focused bar is selected"],
     ["Alt + ← →", "Move the selected bar one frame (Shift: 1 s)"],
     ["[ / ]", "Start / end the selected bar at the playhead (on a shot: move its cut)"],
-    ["Delete", "Remove the selected bar"],
-    ["Ctrl + C / Ctrl + V", "Copy a bar, paste it at the playhead"],
+    ["Delete", "Remove the selected bars"],
+    ["Shift + click / Ctrl + click", "Add a bar to the selection (or take it out); drag one to move them all"],
+    ["Alt + drag", "Drag a copy of the selected bars"],
+    ["Right-click a bar", "Copy, paste, give a move to everyone, lock its row, delete"],
+    ["Ctrl + C / Ctrl + V", "Copy the selected bars, paste them at the playhead"],
     ["Ctrl + Z / Ctrl + Shift + Z", "Undo / redo"],
     ["Ctrl + wheel", "Zoom the timeline"],
     ["Arrows on the preview", "Nudge the selected actor or effect (Shift: 8 px)"],
@@ -645,7 +740,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   const setZoom = (z: number, anchorX?: number) => {
     z = Math.min(16, Math.max(1, Math.round(z * 100) / 100));
     if (z === zoom) return;
-    const box = tracks.getBoundingClientRect(), label = 92;
+    const box = tracks.getBoundingClientRect(), label = LABEL_W;
     // keep the time under anchorX (or the playhead) where it is on screen
     const ax = anchorX ?? Math.min(box.width, Math.max(label, label + (tracks.scrollWidth - label) * (t / tl().duration) - tracks.scrollLeft));
     const frac = (tracks.scrollLeft + ax - label) / (tracks.scrollWidth - label);
@@ -667,11 +762,11 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
 
   function bar(id: string, label: string, start: number, dur: number | undefined, opts: { grip?: boolean; warn?: boolean; locked?: boolean; cls?: string; lane?: number; tip?: string }) {
     const D = tl().duration;
-    const cls = ["clip", opts.cls ?? "", id === selected ? "sel" : "", opts.warn ? "warn" : "", opts.locked ? "locked" : ""].join(" ");
+    const cls = ["clip", opts.cls ?? "", isSel(id) ? "sel" : "", opts.warn ? "warn" : "", opts.locked ? "locked" : "", rowLocked(rowOf(id)) ? "row-locked" : ""].join(" ");
     const w = dur ? `width:${pct(dur / D)}` : "";
     const end = dur ? `to ${(start + dur).toFixed(1)} s` : "";
     const name = `${labelOf(tl(), p.kit, id)}, ${start.toFixed(1)} s ${end}`.trim();
-    return `<div class="${cls}" data-id="${esc(id)}" role="button" tabindex="0" aria-pressed="${id === selected}" aria-label="${esc(name)}" style="left:${pct(start / D)};${w};--k:${opts.lane ?? 0}" title="${esc(opts.tip ?? labelOf(tl(), p.kit, id))}">
+    return `<div class="${cls}" data-id="${esc(id)}" role="button" tabindex="0" aria-pressed="${isSel(id)}" aria-label="${esc(name)}" style="left:${pct(start / D)};${w};--k:${opts.lane ?? 0}" title="${esc(opts.tip ?? labelOf(tl(), p.kit, id))}">
       <span>${esc(label)}</span>${opts.grip ? `<i class="grip" aria-hidden="true"></i>` : ""}</div>`;
   }
   function drawTracks() {
@@ -681,10 +776,11 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const ticks = Array.from({ length: Math.ceil(D) }, (_, s) => `<span class="tick" style="left:${pct(s / D)}">${s}</span>`).join("");
     const shots = T.shots.map((s) => bar(s.id, shotName(T, s.id), s.start, s.end - s.start, { cls: "shot", warn: warn.has(s.id), locked: s.locked })).join("")
       + T.shots.slice(0, -1).map((s, i) => `<i class="edge" data-a="${esc(s.id)}" data-b="${esc(T.shots[i + 1].id)}" style="left:${pct(s.end / D)}" title="Drag to move the cut"></i>`).join("");
+    const lock = (r: string, name: string) => `<button class="row-lock" type="button" data-lock="${esc(r)}" aria-pressed="${rowLocked(r)}" aria-label="Lock the ${esc(name)} row" title="${rowLocked(r) ? "Unlock this row" : "Lock this row: its bars can't be moved or deleted"}">${rowLocked(r) ? "🔒" : "🔓"}</button>`;
     const row = (label: string, lane: string, attrs = "", sel = false, cls = "", n = 1, cat?: Cat) =>
       `<div class="track ${cls}"${cat ? ` data-cat="${cat}"` : ""}${n > 1 ? ` style="min-height:${4 + n * 26}px"` : ""}><div class="track-label${sel ? " sel" : ""}" ${attrs}>${label}</div><div class="lane" ${attrs}>${lane}</div></div>`;
     // bars that overlap stack in lanes; a short bar counts as 44 px wide so its label shows
-    const minS = (D * 44) / Math.max(200, (tracks.clientWidth - 92) * zoom);
+    const minS = (D * 44) / Math.max(200, (tracks.clientWidth - LABEL_W) * zoom);
     const stack = (items: { t: number; len?: number }[]) => {
       const k = lanes(items, minS);
       return { k, n: Math.max(1, ...k.map((x) => x + 1)) };
@@ -694,7 +790,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       const spans = a.actions.map((x) => ({ t: x.t, len: actionSpan(x, a.char, frames) }));
       const { k, n } = stack(spans);
       return row(
-        `<span class="who">${esc(actorName(T, a.id))}</span><button class="row-add" type="button" data-add="${esc(a.id)}" aria-haspopup="menu" aria-expanded="false" aria-label="Add a move for ${esc(actorName(T, a.id))}" title="Add a move at the playhead">+</button>`,
+        `<span class="who">${esc(actorName(T, a.id))}</span>${lock(a.id, actorName(T, a.id))}<button class="row-add" type="button" data-add="${esc(a.id)}" aria-haspopup="menu" aria-expanded="false" aria-label="Add a move for ${esc(actorName(T, a.id))}" title="Add a move at the playhead">+</button>`,
         a.actions.map((x, i) => bar(x.id, x.do === "say" ? `“${x.text ?? ""}”` : moveLabel(x.do), x.t, spans[i].len, {
           grip: x.dur !== undefined, warn: warn.has(x.id), locked: x.locked, lane: k[i],
           // Stand up is a moment, not a stretch: a tag; faded when the actor is already standing
@@ -714,13 +810,15 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const auSpans = T.audio.map((s) => ({ t: s.t, len: bufs.get(s.clip)?.duration }));
     const auLanes = stack(auSpans);
     const audio = T.audio.map((s, i) => bar(s.id, s.line ? `${s.clip} “${s.line}”` : s.clip, s.t, auSpans[i].len, { warn: warn.has(s.id), locked: s.locked, cls: s.kind, lane: auLanes.k[i] })).join("");
+    const time = (T.time ?? []).map((w) => bar(w.id, timeName(w), w.t, w.dur, { grip: true, locked: w.locked, cls: "time" })).join("");
     const focused = (document.activeElement as HTMLElement | null)?.closest?.(".clip")?.getAttribute("data-id");
     tracks.innerHTML = `
       ${row("", ticks, `data-ruler="1" title="Click or drag to move the playhead"`, false, "ruler")}
       ${row("Shots", shots, "", false, "", 1, catOfTrack("shots"))}
+      ${time ? row(`<span title="Slow motion, held frames and hit-stops: what time of the scene is on screen">Time</span>`, time, "", false, "", 1, catOfTrack("shots")) : ""}
       ${actors || row(`<span class="small">No actors</span>`, `<span class="lane-hint">Drag a character in from Cast on the left</span>`)}
-      ${row("Effects", fx, "", false, "", fxLanes.n, catOfTrack("fx"))}
-      ${row("Audio", audio, "", false, "", auLanes.n, catOfTrack("sfx"))}
+      ${row(`<span>Effects</span>${lock("fx", "Effects")}`, fx, "", false, "", fxLanes.n, catOfTrack("fx"))}
+      ${row(`<span>Audio</span>${lock("audio", "Audio")}`, audio, "", false, "", auLanes.n, catOfTrack("sfx"))}
       <div class="playhead" aria-hidden="true"></div>`;
     tracks.style.setProperty("--p", String(t / D));
     // a redraw replaces the bars: keep keyboard focus on the same one
@@ -742,7 +840,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   };
   tracks.onpointerdown = (e) => {
     const el = e.target as HTMLElement;
-    if (el.closest("[data-add]")) return; // the + opens its menu on click; a redraw now would eat the click
+    if (el.closest("[data-add], [data-lock]")) return; // the + and the padlock act on click; a redraw now would eat the click
     const label = el.closest<HTMLElement>(".track-label[data-actor]");
     if (label) return commit({ tl: tl() }, label.dataset.actor!);
     const lane = el.closest<HTMLElement>(".lane");
@@ -779,15 +877,26 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const startT = (it?.e.t as number | undefined) ?? 0;
     const fxMeta = it?.kind === "fx" ? p.kit.assets[it.e.fx as string]?.fx : undefined;
     const startDur = fxMeta ? fxEnd(it!.e as { t: number; dur?: number }, fxMeta, D) - startT : ((it?.e.dur as number | undefined) ?? 0.5); // the length the bar shows
-    const draggable = edge || (it && it.kind !== "shot");
+    const pick = e.shiftKey || e.ctrlKey || e.metaKey; // add to / take out of the selection, no drag
+    const copying = e.altKey && !grip && !edge; // Alt+drag: a copy goes where you drop
+    // dragging a selected bar drags every selected bar; any other bar drags alone
+    const ids = !edge && !grip && it && isSel(id) && group().length > 1 ? group().filter((x) => { const f = find(tl(), x); return !!f && f.kind !== "shot"; }) : id ? [id] : [];
+    const starts = new Map(ids.map((x) => [x, Number(find(tl(), x)?.e.t ?? 0)]));
+    const locked = !copying && ids.some((x) => rowLocked(rowOf(x)));
+    const draggable = !pick && !locked && (edge || (it && it.kind !== "shot"));
     let moved = false;
     tracks.onpointermove = (m) => {
       const dx = m.clientX - x0;
       if (!draggable || (!moved && Math.abs(dx) < 3)) return;
       moved = true;
+      tracks.classList.toggle("copying", copying);
       if (edge) edge.style.left = pct(Math.min(Math.max(at(m.clientX) / D, 0), 1));
       else if (grip) b!.style.width = pct(Math.max(snap(startDur + sec(dx)), 1 / FPS) / D);
-      else b!.style.left = pct(Math.min(Math.max(snap(startT + sec(dx)), 0), D) / D);
+      else
+        for (const [x, s0] of starts) {
+          const el2 = tracks.querySelector<HTMLElement>(`.clip[data-id="${CSS.escape(x)}"]`);
+          if (el2) el2.style.left = pct(Math.min(Math.max(snap(s0 + sec(dx)), 0), D) / D);
+        }
     };
     tracks.onpointercancel = () => {
       tracks.onpointermove = tracks.onpointerup = tracks.onpointercancel = null;
@@ -795,22 +904,89 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     };
     tracks.onpointerup = (u) => {
       tracks.onpointermove = tracks.onpointerup = tracks.onpointercancel = null;
+      tracks.classList.remove("copying");
       const dx = u.clientX - x0;
-      if (!moved) return id ? commit({ tl: tl() }, id) : undefined;
+      if (!moved) {
+        if (!id) return;
+        if (locked && !pick && it && it.kind !== "shot" && Math.abs(dx) >= 3) refuseRows(ids.map(rowOf)); // tried to drag a locked row
+        if (!pick) return commit({ tl: tl() }, id);
+        if (isSel(id)) { // take it out
+          if (id === selected) selected = [...multi][0] ?? null;
+          multi.delete(id);
+          if (selected) multi.delete(selected);
+        } else if (selected) multi.add(id);
+        else selected = id;
+        return draw();
+      }
       if (edge) commit(moveShotEdge(tl(), edge.dataset.a!, edge.dataset.b!, at(u.clientX)));
       else if (grip) commit(resizeEntry(tl(), id, startDur + sec(dx)), id);
+      else if (copying) {
+        const r = pasteMany(tl(), copyMany(tl(), ids), Math.min(...starts.values()) + sec(dx));
+        commit(r, r.error ? undefined : r.ids);
+      } else if (ids.length > 1) commit(moveMany(tl(), ids, sec(dx)), ids);
       else commit(moveEntry(tl(), id, startT + sec(dx)), id);
     };
   };
   // a bar reached by Tab is selected, as a click would
   tracks.addEventListener("focusin", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>(".clip");
-    if (b?.dataset.id && b.dataset.id !== selected) commit({ tl: tl() }, b.dataset.id);
+    if (b?.dataset.id && !isSel(b.dataset.id)) commit({ tl: tl() }, b.dataset.id);
   });
+  // ---- right-click on a bar
+  tracks.oncontextmenu = (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>(".clip");
+    const id = b?.dataset.id;
+    if (!b || !id) return;
+    e.preventDefault();
+    if (!isSel(id)) commit({ tl: tl() }, id);
+    const at = find(tl(), id);
+    const ids = group();
+    const row = rowOf(id);
+    const bar = tracks.querySelector<HTMLElement>(`.clip[data-id="${CSS.escape(id)}"]`) ?? b;
+    const items: [string, () => void][] = [];
+    if (at && at.kind !== "shot") items.push([ids.length > 1 ? `Copy ${ids.length} bars` : "Copy", copySel]);
+    if (clipboard) items.push(["Paste at the playhead", pasteHere]);
+    if (at && at.kind !== "shot") items.push(["Duplicate at the playhead", () => { const r = pasteMany(tl(), copyMany(tl(), ids), t); commit(r, r.error ? undefined : r.ids); }]);
+    if (at?.kind === "action" && ids.length === 1 && tl().actors.length > 1)
+      items.push(["Give this move to the other actors", () => { const r = applyToOthers(tl(), id); commit(r, r.error ? undefined : [id, ...r.ids]); }]);
+    if (row) items.push([rowLocked(row) ? "Unlock this row" : "Lock this row", () => toggleRow(row)]);
+    items.push([ids.length > 1 ? `Delete ${ids.length} bars` : "Delete", delSel]);
+    popMenu(bar, "Bar menu", items, { x: e.clientX, y: e.clientY });
+  };
+  function copySel() {
+    const c = copyMany(tl(), group());
+    if (!c.length) return;
+    clipboard = c;
+    toast(c.length > 1 ? `Copied ${c.length} bars. Ctrl+V pastes them at the playhead, spaced as they were.` : "Copied. Select an actor (or one of its moves) and press Ctrl+V to paste at the playhead.");
+  }
+  function pasteHere() {
+    if (!clipboard) return;
+    const at = selected ? find(tl(), selected) : null;
+    const actor = at?.kind === "actor" ? (at.e.id as string) : at?.kind === "action" ? (at.actor.id as string) : undefined;
+    const one = new Set(clipboard.filter((c) => c.kind === "action").map((c) => c.actor)).size === 1;
+    if (refuseRows(clipboard.map((c) => (c.kind === "action" ? (one && actor) || c.actor || null : c.kind)))) return;
+    const r = pasteMany(tl(), clipboard, t, actor);
+    commit(r, r.error ? undefined : r.ids);
+  }
+  function delSel() {
+    const ids = group();
+    if (!ids.length || refuseRows(ids.map(rowOf))) return;
+    commit(ids.length > 1 ? deleteMany(tl(), ids) : deleteEntry(tl(), ids[0]), null);
+  }
+  function toggleRow(row: string) {
+    const L = new Set(p.lockedRows ?? []);
+    if (L.has(row)) L.delete(row);
+    else L.add(row);
+    p.lockedRows = [...L];
+    changed();
+    draw();
+  }
   // ---- the + on an actor's row: a small menu of moves, each added at the playhead
   tracks.onclick = (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-add]");
     if (b) openMoveMenu(b, b.dataset.add!);
+    const l = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-lock]");
+    if (l) toggleRow(l.dataset.lock!);
   };
   function openMoveMenu(anchor: HTMLElement, actorId: string) {
     document.querySelector(".move-menu")?.remove();
@@ -863,16 +1039,22 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     menu.querySelector("button")!.focus();
   }
   /** A small menu under anchor; Escape, Tab or a click outside closes it and focus goes back to anchor. */
-  function popMenu(anchor: HTMLElement, label: string, items: [string, () => void][]) {
+  function popMenu(anchor: HTMLElement, label: string, items: [string, () => void][], point?: { x: number; y: number }) {
+    document.querySelector(".move-menu")?.remove();
     const menu = Object.assign(document.createElement("div"), { className: "move-menu", role: "menu" });
     menu.setAttribute("aria-label", label);
     const r = anchor.getBoundingClientRect();
-    menu.style.left = `${Math.min(r.left, innerWidth - 240)}px`;
-    menu.style.bottom = `${innerHeight - r.top + 4}px`; // opens upwards: the timeline is below the button
-    menu.style.maxHeight = `${r.top - 12}px`;
+    if (point) { // a right-click: at the pointer
+      menu.style.left = `${Math.min(point.x, innerWidth - 260)}px`;
+      menu.style.top = `${point.y}px`;
+    } else {
+      menu.style.left = `${Math.min(r.left, innerWidth - 240)}px`;
+      menu.style.bottom = `${innerHeight - r.top + 4}px`; // opens upwards: the timeline is below the button
+      menu.style.maxHeight = `${r.top - 12}px`;
+    }
     menu.style.overflowY = "auto";
     const shut = () => (menu.remove(), document.removeEventListener("pointerdown", away, true), anchor.setAttribute("aria-expanded", "false"));
-    const close = () => (shut(), anchor.focus());
+    const close = () => (shut(), anchor.isConnected ? anchor.focus() : tracks.querySelector<HTMLElement>(".clip.sel")?.focus({ preventScroll: true }));
     const away = (e: Event) => menu.contains(e.target as Node) || shut();
     anchor.setAttribute("aria-expanded", "true");
     for (const [text, run] of items) {

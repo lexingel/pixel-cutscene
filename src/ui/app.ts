@@ -1,7 +1,9 @@
 import { startHomeFx } from "./homeFx";
 import { importAs } from "../core/cast";
 import { fromZip, newProject, type Project } from "../core/project";
-import { deleteProject, listProjects, loadProject, saveProject } from "../core/store";
+import { autoSnapshot, deleteProject, listProjects, loadProject, saveProject } from "../core/store";
+import { backUp } from "../core/folderBackup";
+import { openVersions } from "./versions";
 import { renderCast } from "./cast";
 import { renderScene } from "./scene";
 import { renderTweak } from "./tweak";
@@ -54,6 +56,8 @@ export function mountApp(root: HTMLElement): void {
     try {
       await saveProject(current);
       if (status) status.textContent = "Saved";
+      const p = current;
+      if (await autoSnapshot(p).catch(() => false)) backUp(p).catch(() => toast("Could not write the backup to its folder. Open Versions to check it.", "error"));
     } catch {
       toast("Could not save to this browser's storage. Use Download project to keep a copy.", "error");
       if (status) status.textContent = "Not saved";
@@ -193,6 +197,7 @@ export function mountApp(root: HTMLElement): void {
       <span class="save small muted" aria-live="polite" data-testid="save-status">Saved</span>
       <span class="theme-slot"></span>
       <button class="btn" type="button" data-act="settings">Settings</button>
+      <button class="btn" type="button" data-act="versions" title="Saved versions of this project, and a backup folder">Versions</button>
       <button class="btn" type="button" data-act="zip" title="${ZIP_TIP}">Download project</button>
     </header>
     <main class="page"></main>`;
@@ -206,6 +211,14 @@ export function mountApp(root: HTMLElement): void {
     };
     root.querySelector<HTMLButtonElement>("[data-act=zip]")!.onclick = () => downloadProject(p);
     root.querySelector<HTMLButtonElement>("[data-act=settings]")!.onclick = () => openSettings(() => showStep());
+    root.querySelector<HTMLButtonElement>("[data-act=versions]")!.onclick = async () => {
+      await save();
+      openVersions(p, async (old) => {
+        current = old;
+        await saveProject(old);
+        showProject(old);
+      });
+    };
     const page = root.querySelector<HTMLElement>(".page")!;
     const go = (n: Step) => {
       p.step = n;

@@ -1,6 +1,6 @@
 // Shared vocabulary for the timeline JSON. Field names match scenes/rift.json exactly.
 
-export interface CamKey { t: number; x: number; y: number }
+export interface CamKey { t: number; x: number; y: number; ease?: "linear" | "hold" } // ease: how it goes on to the next key (smooth when unset)
 
 interface ShotBase {
   id: string;
@@ -11,6 +11,10 @@ interface ShotBase {
   fade_out?: number;
   flash?: number; // seconds of white flash at the shot's start
   shake?: number; // seconds of camera shake at the shot's start (wide shots)
+  transition?: { kind: "dissolve" | "wipe" | "iris"; dur: number }; // how this shot comes in (dissolve/wipe: from the shot before)
+  iris_out?: number; // seconds of a circle closing to black at the shot's end
+  grade?: "night" | "dusk" | "cold" | "sepia"; // a colour grade: every colour maps to one other (effects light up what is near them)
+  vignette?: boolean; // darker corners, dithered
   locked?: boolean;
 }
 /** Zoom eased from `from` to `to` across the shot, centred on (x, y) in frame pixels as far as the frame allows. */
@@ -45,6 +49,9 @@ export interface Actor {
 
 export interface FxEntry { id: string; t: number; fx: string; x: number; y: number; flip?: boolean; angle?: number; reach?: number; dur?: number; locked?: boolean }
 
+/** A time effect, in output time: a hold freezes the picture (a hit-stop when short), slow is a speed ramp. */
+export interface TimeFx { id: string; t: number; dur: number; kind: "slow" | "hold"; rate?: number; locked?: boolean }
+
 export type AudioKind = "music" | "sfx" | "voice";
 export interface AudioEntry {
   id: string;
@@ -64,10 +71,12 @@ export interface Timeline {
   duration: number;
   kit?: string;
   closeup_scale?: number;
-  shadows?: boolean; // a ground shadow under every actor in wide shots
+  shadows?: boolean;
+  letterbox?: number; // pixels of black bar at the top and bottom (a cinema frame) // a ground shadow under every actor in wide shots
   shots: Shot[];
   actors: Actor[];
   fx: FxEntry[];
+  time?: TimeFx[];
   audio: AudioEntry[];
 }
 

@@ -315,7 +315,7 @@ a { color: inherit; }
 .needs > li:focus { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
 
 .tracks {
-  --label: 92px; --z: 1; grid-column: 2; position: relative; max-height: max(220px, 45vh); overflow: auto;
+  --label: 112px; --z: 1; grid-column: 2; position: relative; max-height: max(220px, 45vh); overflow: auto;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); user-select: none;
 }
 .track { display: grid; grid-template-columns: var(--label) 1fr; min-height: 30px; border-top: 1px solid var(--line); width: calc(var(--label) + (100% - var(--label)) * var(--z)); }
@@ -360,6 +360,7 @@ a { color: inherit; }
 .clip:hover { border-color: var(--c-place); }
 .clip.shot { background: var(--raised); border-color: var(--line); color: var(--muted); cursor: pointer; border-radius: 3px; }
 .clip.fx { background: color-mix(in srgb, var(--c-fx) 22%, var(--panel)); border-color: color-mix(in srgb, var(--c-fx) 50%, var(--panel)); }
+.clip.time { background: color-mix(in srgb, var(--c-place) 22%, var(--panel)); border-color: color-mix(in srgb, var(--c-place) 50%, var(--panel)); border-style: dashed; }
 .clip.mark { background: transparent; border-style: dashed; }
 .clip.noop { opacity: 0.5; }
 .clip.music { background: color-mix(in srgb, var(--c-sound) 22%, var(--panel)); border-color: color-mix(in srgb, var(--c-sound) 50%, var(--panel)); }
@@ -404,7 +405,7 @@ input[type=checkbox] { accent-color: var(--focus); }
 .fields .foot { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); align-items: center; }
 .hint.err { color: var(--danger); }
 .cam { display: grid; gap: 4px; margin-top: 4px; }
-.cam-key { display: grid; grid-template-columns: repeat(3, 1fr) auto; gap: 4px; }
+.cam-key { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.3fr) auto; gap: 4px; }
 
 .needs { list-style: none; margin: 8px 0 0; padding: 0; display: grid; }
 .needs li { display: grid; gap: 4px; padding: 8px 0; border-top: 1px solid var(--line); }
@@ -655,3 +656,53 @@ dialog.approvals .row.end { justify-content: flex-end; margin-top: 12px; }
 }
 /* No keys: a quiet info line, not a warning */
 .no-key { color: var(--muted); font-size: 12px; }
+
+/* Versions */
+.dialog.versions { width: min(560px, calc(100vw - 32px)); }
+.dialog.versions h3 { font-size: 13px; font-weight: 650; color: var(--ink); margin: 18px 0 4px; }
+.versions .ver-new { display: flex; gap: 8px; }
+.versions .ver-new input { flex: 1; min-width: 0; }
+.versions .ver-list { list-style: none; margin: 14px 0 0; padding: 0; max-height: 280px; overflow-y: auto; border-top: 1px solid var(--line); }
+.versions .ver-list li { display: flex; align-items: center; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.versions .ver-what { flex: 1; min-width: 0; display: grid; }
+.versions .ver-what .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.versions .ver-folder p { margin: 0 0 8px; }
+.versions .ver-folder .row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* G2: row padlock, a locked row, Alt+drag copy */
+.row-lock { margin-left: 4px; padding: 0 2px; font-size: 11px; line-height: 1; background: none; border: 0; cursor: pointer; opacity: 0.35; filter: grayscale(1); }
+.row-lock:hover, .row-lock:focus-visible { opacity: 1; }
+.row-lock[aria-pressed="true"] { opacity: 1; filter: none; }
+.track-label[data-actor] { padding-right: 46px; }
+.track-label[data-actor] .row-lock { position: absolute; right: 27px; top: 50%; transform: translateY(-50%); width: 16px; margin: 0; font-size: 10px; text-align: center; }
+.track[data-cat] > .track-label:not([data-actor]) { display: flex; align-items: center; }
+.clip.row-locked { cursor: default; opacity: 0.75; }
+.tracks.copying, .tracks.copying .clip { cursor: copy; }
+
+/* S3: the Dialogue window */
+.dialog.dialogue { width: min(760px, calc(100vw - 32px)); }
+.dialogue .dl-body { max-height: min(52vh, 460px); overflow: auto; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px 0; }
+.dl-table { width: 100%; border-collapse: collapse; }
+.dl-table th { font-size: 12px; font-weight: 600; color: var(--muted); text-align: left; padding: 4px 4px 6px; }
+.dl-table td { padding: 3px 4px; vertical-align: middle; }
+.dl-table td:nth-child(2) { width: 100%; }
+.dl-table input:not([type=checkbox]), .dl-table select { width: 100%; box-sizing: border-box; }
+.dl-table td:nth-child(5) input { width: 76px; }
+.dl-table td:first-child select { width: 116px; }
+.dl-table td:nth-child(3), .dl-table td:nth-child(4), .dl-table th:nth-child(3), .dl-table th:nth-child(4) { text-align: center; }
+.dialogue .dl-script { display: block; width: 100%; box-sizing: border-box; font: 13px/1.5 var(--font-mono); resize: vertical; }
+.dialogue .dl-tools { display: flex; gap: 8px; margin-top: 10px; }
+.dialogue .dl-err { color: var(--danger); margin: 8px 0 0; }
+/* the Storyboard window: shot cards in a grid, first frame of each */
+.dialog.storyboard { width: min(820px, 94vw); }
+.sb-grid { list-style: none; margin: 8px 0; padding: 6px 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; max-height: min(56vh, 500px); overflow: auto; }
+.sb-grid li { display: flex; flex-direction: column; gap: 4px; }
+.sb-grid li[draggable="true"] { cursor: grab; }
+.sb-card { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.sb-card:hover { border-color: var(--c-place); }
+.sb-card canvas { width: 100%; height: auto; image-rendering: pixelated; background: #000; border-radius: 4px; }
+.sb-name { font-weight: 600; font-size: 13px; }
+.sb-move { display: flex; justify-content: space-between; }
+/* S1: the beat list under the scene text; with it open, both boxes get shorter so the page fits */
+.beats { display: grid; gap: 10px; width: 100%; }
+.beats .scene-text textarea, .scene-page:has(.beats:not([hidden])) .scene-text textarea { min-height: 150px; height: 150px; }

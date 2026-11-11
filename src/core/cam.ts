@@ -4,7 +4,7 @@ import type { CamKey } from "./types";
 export const round = (n: number) => Math.sign(n) * Math.round(Math.abs(n));
 const smoothstep = (u: number) => u * u * (3 - 2 * u);
 
-/** Camera position at time t: smoothstep between keys, held at both ends, whole pixels. */
+/** Camera position at time t: between keys by the earlier key's ease (smoothstep unless linear or hold), held at both ends, whole pixels. */
 export function camAt(keys: CamKey[], t: number): { x: number; y: number } {
   if (!keys.length) return { x: 0, y: 0 };
   const ks = [...keys].sort((a, b) => a.t - b.t);
@@ -13,7 +13,8 @@ export function camAt(keys: CamKey[], t: number): { x: number; y: number } {
   for (let i = 1; i < ks.length; i++) {
     const a = ks[i - 1], b = ks[i];
     if (t < b.t) {
-      const u = smoothstep((t - a.t) / Math.max(b.t - a.t, 0.0001));
+      const v = (t - a.t) / Math.max(b.t - a.t, 0.0001);
+      const u = a.ease === "hold" ? 0 : a.ease === "linear" ? v : smoothstep(v);
       return { x: round(a.x + (b.x - a.x) * u), y: round(a.y + (b.y - a.y) * u) };
     }
   }
