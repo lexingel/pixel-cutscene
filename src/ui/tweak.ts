@@ -30,7 +30,7 @@ import { openStoryboard } from "./storyboard";
 import { emptyTimeline } from "./scene";
 import type { Step } from "./steps";
 import {
-  FPS, History, addAction, addEntry, deleteEntry, find, lanes, moveEntry, moveShotEdge, newId, playhead, resizeEntry, setField, snap, splitShot, rulerTicks, fxRows, addFxRow, removeFxRow, trimStart, copyMany, pasteMany, moveMany, deleteMany, applyToOthers, type Clip, insertShot, panShot, transition, shotTransition, addTimeFx, camKeyAt, setCamera, type EditResult,
+  FPS, History, addAction, addEntry, deleteEntry, find, lanes, moveEntry, moveShotEdge, newId, playhead, resizeEntry, setField, snap, splitShot, rulerTicks, fxRows, addFxRow, removeFxRow, fxKey, shiftFxLocks, shiftRows, trimStart, copyMany, pasteMany, moveMany, deleteMany, applyToOthers, type Clip, insertShot, panShot, transition, shotTransition, addTimeFx, camKeyAt, setCamera, type EditResult,
 } from "./timelineEditor";
 
 const ACTIONS_MENU = ["walk", "move", "look_around", "startle", "hurt", "dust", "say"];
@@ -77,8 +77,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     return at?.kind === "action" ? (at.actor.id as string) : at?.kind === "actor" ? (at.e.id as string) : at?.kind === "fx" ? fxKey(Number(at.e.row ?? 0)) : at?.kind === "audio" ? "audio" : null;
   };
   const rowLocked = (row: string | null) => !!row && (p.lockedRows ?? []).includes(row);
-  const fxKey = (r: number) => (r ? `fx${r}` : "fx"); // an effects row's lock key
-  const rowName = (r: string) => (r === "fx" ? "Effects" : /^fx\d+$/.test(r) ? `FX ${Number(r.slice(2)) + 1}` : r === "audio" ? "Audio" : actorName(tl(), r));
+  const rowName = (r: string) => (/^fx\d*$/.test(r) ? `FX ${Number(r.slice(2) || 0) + 1}` : r === "audio" ? "Audio" : actorName(tl(), r));
   const refuseRows = (rows: (string | null)[]) => {
     const r = rows.find(rowLocked);
     if (r) toast(`The ${rowName(r)} row is locked. Unlock it with its padlock first.`, "error");
@@ -110,7 +109,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       <button class="btn primary" type="button" data-act="next">Next: Export</button>
     </div>
     <div class="tl-box">
-      <div class="t-resize" role="separator" aria-orientation="horizontal" aria-label="Timeline height" tabindex="0" title="Drag to make the timeline taller or shorter"></div>
+      <div class="t-resize" role="separator" aria-orientation="horizontal" aria-label="Timeline height" aria-valuemin="100" tabindex="0" title="Drag to make the timeline taller or shorter"></div>
       <div class="tracks" data-testid="tracks"></div>
       <div class="overview" hidden title="The whole scene: click or drag to scroll the timeline"><div class="ov-bars"></div><div class="ov-win"></div></div>
     </div>
@@ -150,7 +149,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     canvas.dataset.ready = "1";
     paint();
     drawFraming();
-    queueMicrotask(() => drawTracks()); // the row and bar pictures need the PNGs; later, as setup may still be running
+    queueMicrotask(() => (pics.clear(), drawTracks())); // the row and bar pictures need the PNGs; later, as setup may still be running
   };
 
   // Native-size canvas; CSS scales it by the largest whole number that fits (below 1×, it shrinks to fit).
@@ -206,7 +205,11 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     if (!playing) say(T); // read out where a stopped playhead is, never every frame of playback
     tracks.style.setProperty("--p", String(t / T.duration));
     const ph = tracks.querySelector(".ph-t");
-    if (ph) ph.textContent = t.toFixed(2);
+    if (ph) {
+      ph.textContent = t.toFixed(2);
+      ph.classList.toggle("flip", t / T.duration > 0.5);
+      phTicks();
+    }
     if (playing && zoom > 1) { // a zoomed strip follows the playhead
       const x = LABEL_W + 10 + ((tracks.scrollWidth - LABEL_W) - 20) * (t / T.duration) - tracks.scrollLeft;
       if (x < LABEL_W || x > tracks.clientWidth - 20) tracks.scrollLeft += x - LABEL_W - 20;
@@ -340,7 +343,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
         select.slice(1).forEach((x) => multi.add(x));
       } else selected = select;
     }
-    if (r.tl !== p.tl) {
+    if (r.tl !== p.tl && JSON.stringify(r.tl) !== JSON.stringify(p.tl)) {
       hist.push(tl());
       p.tl = r.tl;
       changed();
@@ -693,6 +696,13 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
         if (!ids.length || refuseRows(ids.map(rowOf))) return;
         const step = (e.shiftKey ? 1 : 1 / FPS) * (e.key === "ArrowLeft" ? -1 : 1);
         commit(moveMany(tl(), ids, step), ids);
+      } else if (e.altKey && selected && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+        const at = find(tl(), selected);
+        if (at?.kind !== "fx") return;
+        e.preventDefault();
+        const from = Number(at.e.row ?? 0), to = from + (e.key === "ArrowUp" ? 1 : -1);
+        if (to < 0 || refuseRows([fxKey(from), fxKey(to)])) return;
+        commit(setField(tl(), selected, "row", to || undefined), selected);
       } else if (e.key === "?") showKeys();
       else if (nudge && ARROWS[e.key]) {
         const [dx, dy] = ARROWS[e.key];
@@ -762,7 +772,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     tracks.style.setProperty("--z", String(z));
     drawTracks();
     tracks.scrollLeft = frac * (tracks.scrollWidth - label) - (ax - label);
-    drawOverview();
+    winOverview();
     $<HTMLButtonElement>("[data-act=zoom-out]").disabled = z <= 1;
     $<HTMLButtonElement>("[data-act=zoom-in]").disabled = z >= maxZoom();
   };
@@ -799,8 +809,9 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   const setLabelW = (w: number) => {
     LABEL_W = Math.round(Math.min(260, Math.max(80, w)));
     tracks.style.setProperty("--label", `${LABEL_W}px`);
+    tracks.querySelector(".l-resize")?.setAttribute("aria-valuenow", String(LABEL_W));
   };
-  setLabelW(Number(pref("pc.label")) || 136);
+  setLabelW(Number(pref("pc.label")) || (innerWidth < 760 ? 96 : 136));
   let compact = pref("pc.rows") === "compact";
   tracks.classList.toggle("compact", compact);
   const folded = new Set((pref("pc.groups") ?? "").split(",").filter(Boolean));
@@ -834,14 +845,14 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const rows = Math.ceil(m.frames / m.cols), cw = Math.floor(im.w / m.cols), ch = Math.floor(im.h / rows), i = m.frames >> 1;
     return crop(im, (i % m.cols) * cw, Math.floor(i / m.cols) * ch, cw, ch);
   });
-  const waves = new Map<string, string>();
+  const waves = new WeakMap<AudioBuffer, string>(); // a redone clip decodes to a new buffer: a new wave
   const waveOf = (clip: string) => {
-    if (waves.has(clip)) return waves.get(clip)!;
     const b = bufs.get(clip);
     if (!b) return "";
+    if (waves.has(b)) return waves.get(b)!;
     const d = peaks(b.getChannelData(0), 120).map((v, i) => `M${i} ${(10 - v * 9).toFixed(1)}V${(10 + v * 9).toFixed(1)}`).join("");
     const svg = `<svg class="wave" viewBox="0 0 120 20" preserveAspectRatio="none" aria-hidden="true"><path d="${d}"/></svg>`;
-    waves.set(clip, svg);
+    waves.set(b, svg);
     return svg;
   };
 
@@ -856,6 +867,16 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const when = dur ? `${start.toFixed(2)} s → ${(start + dur).toFixed(2)} s (${dur.toFixed(2)} s)` : `at ${start.toFixed(2)} s`;
     return `<div class="${cls}" data-id="${esc(id)}" role="button" tabindex="0" aria-pressed="${isSel(id)}" aria-label="${esc(name)}" style="left:${pct(start / D)};${w};--k:${opts.lane ?? 0}${full && dur && full > dur ? `;--wk:${(full / dur).toFixed(3)}` : ""}" title="${esc(opts.tip ?? `${labelOf(tl(), p.kit, id)} · ${when}`)}">
       ${opts.inner ?? ""}${opts.pic ? `<img class="bar-pic" src="${opts.pic}" alt="">` : ""}<span>${esc(label)}</span>${opts.grip ? `<i class="grip" aria-hidden="true"></i>` : ""}</div>`;
+  }
+  // a ruler number under the playhead's time label steps aside while they overlap
+  function phTicks() {
+    const ph = tracks.querySelector(".ph-t");
+    if (!ph) return;
+    const pb = ph.getBoundingClientRect();
+    for (const k of tracks.querySelectorAll<HTMLElement>(".ruler .tick:not(.minor)")) {
+      const kb = k.getBoundingClientRect();
+      k.classList.toggle("under-ph", kb.right > pb.left - 2 && kb.left < pb.right + 2 && kb.top < pb.bottom);
+    }
   }
   // the bands and the playhead reach the bottom of every row, however far the strip scrolls down
   function sizeLayers() {
@@ -884,7 +905,29 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     win.style.left = pct(tracks.scrollLeft / span);
     win.style.width = pct((tracks.clientWidth - LABEL_W) / span);
   }
-  tracks.addEventListener("scroll", winOverview, { passive: true });
+  tracks.addEventListener("scroll", () => (winOverview(), phTicks()), { passive: true });
+  let lastW = tracks.clientWidth, sized = 0; // the first draw already used this width
+  new ResizeObserver(() => {
+    if (tracks.clientWidth === lastW || tracks.onpointermove) return; // not mid-drag
+    lastW = tracks.clientWidth;
+    cancelAnimationFrame(sized);
+    sized = requestAnimationFrame(() => {
+      if (!tracks.isConnected) return;
+      drawTracks();
+      $<HTMLButtonElement>("[data-act=zoom-in]").disabled = zoom >= maxZoom();
+    });
+  }).observe(tracks);
+  // the names column's edge, from the keyboard
+  tracks.addEventListener("keydown", (e) => {
+    if (!(e.target as HTMLElement).classList.contains("l-resize")) return;
+    const step = e.key === "ArrowLeft" ? -20 : e.key === "ArrowRight" ? 20 : 0;
+    if (!step) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setLabelW(LABEL_W + step);
+    keep("pc.label", String(LABEL_W));
+    drawTracks();
+  });
   overview.onpointerdown = (e) => {
     overview.setPointerCapture(e.pointerId);
     const go = (x: number) => {
@@ -905,8 +948,8 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const shots = T.shots.map((s) => bar(s.id, shotName(T, s.id), s.start, s.end - s.start, { cls: "shot", warn: warn.has(s.id), locked: s.locked })).join("")
       + T.shots.slice(0, -1).map((s, i) => `<i class="edge" data-a="${esc(s.id)}" data-b="${esc(T.shots[i + 1].id)}" style="left:${pct(s.end / D)}" title="Drag to move the cut"></i>`).join("");
     const lock = (r: string, name: string) => `<button class="row-lock" type="button" data-lock="${esc(r)}" aria-pressed="${rowLocked(r)}" aria-label="Lock the ${esc(name)} row" title="${rowLocked(r) ? "Unlock this row" : "Lock this row: its bars can't be moved or deleted"}">${rowLocked(r) ? "🔒" : "🔓"}</button>`;
-    const row = (label: string, lane: string, attrs = "", sel = false, cls = "", n = 1, cat?: Cat) =>
-      `<div class="track ${cls}"${cat ? ` data-cat="${cat}"` : ""}${n > 1 ? ` style="min-height:calc(4px + ${n} * var(--lh))"` : ""}><div class="track-label${sel ? " sel" : ""}" ${attrs}>${label}</div><div class="lane" ${attrs}>${lane}</div></div>`;
+    const row = (label: string, lane: string, attrs = "", sel = false, cls = "", n = 1, cat?: Cat, laneAttrs = "") =>
+      `<div class="track ${cls}"${cat ? ` data-cat="${cat}"` : ""}${n > 1 ? ` style="min-height:calc(4px + ${n} * var(--lh))"` : ""}><div class="track-label${sel ? " sel" : ""}" ${attrs}>${label}</div><div class="lane" ${attrs} ${laneAttrs}>${lane}</div></div>`;
     // bars that overlap stack in lanes; a short bar counts as 44 px wide so its label shows
     const minS = (D * 44) / Math.max(200, (tracks.clientWidth - LABEL_W) * zoom);
     const stack = (items: { t: number; len?: number }[]) => {
@@ -938,11 +981,11 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const fxRowsHtml = Array.from({ length: nFx }, (_, k) => nFx - 1 - k).map((r) => {
       const ix = T.fx.flatMap((f, i) => ((f.row ?? 0) === r ? [i] : []));
       const { k, n } = stack(ix.map((i) => fxSpans[i]));
-      const name = nFx > 1 ? `FX ${r + 1}` : "Effects"; // short: the row also holds a padlock, × and +
+      const name = `FX ${r + 1}`; // short: the row also holds a padlock, × and +
       const bars = ix.map((i, j) => { const f = T.fx[i]; return bar(f.id, fxName(p.kit, f.fx), f.t, fxSpans[i].len, { grip: true, warn: warn.has(f.id), locked: f.locked, cls: "fx", lane: k[j], pic: fxPic(f.fx) }); }).join("");
       const plus = r === nFx - 1 ? `<button class="row-add" type="button" data-fxadd="1" aria-label="Add an effects row" title="Add an effects row: its effects draw in front of the rows below">+</button>` : "";
       const del = nFx > 1 && !ix.length ? `<button class="row-add" type="button" data-fxdel="${r}" aria-label="Remove ${name}" title="Remove this empty row">×</button>` : "";
-      return row(`<span title="${nFx > 1 ? "Higher rows draw in front" : "Effects, drawn over the actors"}">${name}</span>${lock(fxKey(r), name)}${del}${plus}`, bars, `data-fxrow="${r}"`, false, "", n, catOfTrack("fx"));
+      return row(`<span title="Higher rows draw in front. Drag a bar up or down (or Alt+↑/↓) to change its row">${name}</span>${lock(fxKey(r), name)}${del}${plus}`, bars, `data-fxrow="${r}"`, false, "", n, catOfTrack("fx"));
     }).join("");
     const auSpans = T.audio.map((s) => ({ t: s.t, len: bufs.get(s.clip)?.duration }));
     const auLanes = stack(auSpans);
@@ -958,10 +1001,10 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       return `<div class="track group" data-cat="${cat}"><div class="track-label"><button class="grp" type="button" data-group="${key}" aria-expanded="${!f}" title="${f ? "Show" : "Fold"} these rows">${f ? "▸" : "▾"} ${title} <span class="n">${n}</span></button></div><div class="lane">${f ? marks(xs) : ""}</div></div>`;
     };
     const actorMarks = T.actors.flatMap((a) => a.actions.map((x) => ({ t: x.t, len: actionSpan(x, a.char, frames) })));
-    const ruler = `<button class="dens" type="button" data-dens="1" aria-pressed="${compact}" aria-label="Compact rows" title="${compact ? "Roomy rows" : "Compact rows: more rows on screen"}">${compact ? "⇕" : "≡"}</button><i class="l-resize" role="separator" aria-orientation="vertical" aria-label="Track names width" tabindex="0" title="Drag to widen the track names"></i>`;
+    const ruler = `<button class="dens" type="button" data-dens="1" aria-pressed="${compact}" aria-label="Compact rows" title="${compact ? "Roomy rows" : "Compact rows: more rows on screen"}">${compact ? "⇕" : "≡"}</button><i class="l-resize" data-lresize="1" role="separator" aria-orientation="vertical" aria-label="Track names width" aria-valuemin="80" aria-valuemax="260" aria-valuenow="${LABEL_W}" tabindex="0" title="Drag (or ← →) to widen the track names"></i>`;
     tracks.innerHTML = `
       <div class="shot-bands" aria-hidden="true">${T.shots.map((s, i) => `<i class="${i % 2 ? "odd" : ""}" style="left:${pct(s.start / D)};width:${pct((s.end - s.start) / D)}"></i>`).join("")}</div>
-      ${row(ruler, ticks, `data-ruler="1" title="Click or drag to move the playhead"`, false, "ruler")}
+      ${row(ruler, ticks, `data-ruler="1"`, false, "ruler", 1, undefined, `title="Click or drag to move the playhead"`)}
       ${row("Shots", shots, "", false, "", 1, catOfTrack("shots"))}
       ${time ? row(`<span title="Slow motion, held frames and hit-stops: what time of the scene is on screen">Time</span>`, time, "", false, "", 1, catOfTrack("shots")) : ""}
       ${group("chars", "Characters", T.actors.length, catOfTrack("actor"), actorMarks)}
@@ -972,12 +1015,16 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       ${group("sound", "Sound", T.audio.length, catOfTrack("sfx"), auSpans)}
       ${folded.has("sound") ? "" : row(`<span>Audio</span>${lock("audio", "Audio")}`, audio, "", false, "", auLanes.n, catOfTrack("sfx"))}
       <div class="snap-guide" hidden aria-hidden="true"></div>
-      <div class="playhead" aria-hidden="true"><span class="ph-t">${t.toFixed(2)}</span></div>`;
+      <div class="playhead" aria-hidden="true"><span class="ph-t${t / D > 0.5 ? " flip" : ""}">${t.toFixed(2)}</span></div>`;
     tracks.style.setProperty("--p", String(t / D));
     sizeLayers();
+    phTicks();
     drawOverview();
     // a redraw replaces the bars: keep keyboard focus on the same one
-    if (key?.[1] !== undefined) tracks.querySelector<HTMLElement>(`[data-${key[0]}="${CSS.escape(key[1])}"]`)?.focus({ preventScroll: true });
+    if (key?.[1] !== undefined) {
+      const back = tracks.querySelector<HTMLElement>(`[data-${key[0]}="${CSS.escape(key[1])}"]`) ?? (key[0] === "fxdel" ? tracks.querySelector<HTMLElement>("[data-fxadd]") : null);
+      back?.focus({ preventScroll: true });
+    }
   }
 
   // One pointer handler for the whole track area: seek on the ruler, move bars, drag grips and cuts.
@@ -1040,7 +1087,8 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const grip = !!el.closest(".grip");
     const startT = (it?.e.t as number | undefined) ?? 0;
     const fxMeta = it?.kind === "fx" ? p.kit.assets[it.e.fx as string]?.fx : undefined;
-    const startDur = fxMeta ? fxEnd(it!.e as { t: number; dur?: number }, fxMeta, D) - startT : ((it?.e.dur as number | undefined) ?? 0.5); // the length the bar shows
+    const shown = b?.style.width ? (parseFloat(b.style.width) / 100) * D : 0;
+    const startDur = fxMeta ? fxEnd(it!.e as { t: number; dur?: number }, fxMeta, D) - startT : ((it?.e.dur as number | undefined) ?? (shown || 0.5)); // the length the bar shows
     const pick = e.shiftKey || e.ctrlKey || e.metaKey; // add to / take out of the selection, no drag
     const copying = e.altKey && !grip && !edge; // Alt+drag: a copy goes where you drop
     // dragging a selected bar drags every selected bar; any other bar drags alone
@@ -1051,7 +1099,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     let moved = false;
     // snapping: a dragged bar's start or end clicks onto another bar's edge, a cut or the playhead (6 px reach)
     const others = new Set(ids);
-    const edges = [t, ...[...tracks.querySelectorAll<HTMLElement>(".clip")].filter((c) => !others.has(c.dataset.id ?? "")).flatMap((c) => {
+    const edges = [...(Math.abs(t - startT) > 1e-6 ? [t] : []), ...[...tracks.querySelectorAll<HTMLElement>(".clip")].filter((c) => !others.has(c.dataset.id ?? "")).flatMap((c) => {
       const l = (parseFloat(c.style.left) / 100) * D, w = c.style.width ? (parseFloat(c.style.width) / 100) * D : 0;
       return w ? [l, l + w] : [l];
     })];
@@ -1064,8 +1112,10 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     };
     tracks.onpointermove = (m) => {
       const dx = m.clientX - x0;
-      if (!draggable || (!moved && Math.abs(dx) < 3 && Math.abs(m.clientY - y0) < 3)) return;
+      const dy = it?.kind === "fx" ? Math.abs(m.clientY - y0) : 0; // only an effect moves up or down (to another row)
+      if (!draggable || (!moved && Math.abs(dx) < 3 && dy < 8)) return;
       moved = true;
+      if (it?.kind === "fx") dropRow(rowUnder(m.clientX, m.clientY));
       tracks.classList.toggle("copying", copying);
       if (edge) edge.style.left = pct(Math.min(Math.max(at(m.clientX) / D, 0), 1));
       else if (grip) {
@@ -1086,12 +1136,14 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     tracks.onpointercancel = () => {
       tracks.onpointermove = tracks.onpointerup = tracks.onpointercancel = null;
       showGuide();
+      dropRow(undefined);
       draw(); // put the dragged bar back
     };
     tracks.onpointerup = (u) => {
       tracks.onpointermove = tracks.onpointerup = tracks.onpointercancel = null;
       tracks.classList.remove("copying");
       showGuide();
+      dropRow(undefined);
       const dx = u.clientX - x0 + (adj / D) * box.width; // the snap, back in pixels
       if (!moved) {
         if (!id) return;
@@ -1107,24 +1159,31 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       }
       if (edge) commit(moveShotEdge(tl(), edge.dataset.a!, edge.dataset.b!, at(u.clientX)));
       else if (grip) commit(resizeEntry(tl(), id, startDur + sec(dx)), id);
-      else if (copying) {
-        const r = pasteMany(tl(), copyMany(tl(), ids), Math.min(...starts.values()) + sec(dx));
-        commit(r, r.error ? undefined : r.ids);
-      } else if (ids.length > 1) commit(moveMany(tl(), ids, sec(dx)), ids);
       else {
-        // an effect dragged onto another effects row moves to that layer
-        const to = it?.kind === "fx" ? document.elementFromPoint(u.clientX, u.clientY)?.closest<HTMLElement>("[data-fxrow]")?.dataset.fxrow : undefined;
-        const r = moveEntry(tl(), id, startT + sec(dx));
-        if (r.error || to === undefined || Number(to) === Number(it!.e.row ?? 0)) return commit(r, id);
-        if (rowLocked(fxKey(Number(to)))) return void (refuseRows([fxKey(Number(to))]), draw());
-        commit(setField(r.tl, id, "row", Number(to) || undefined), id);
+        const r: EditResult & { ids?: string[] } = copying ? pasteMany(tl(), copyMany(tl(), ids), Math.min(...starts.values()) + sec(dx))
+          : ids.length > 1 ? moveMany(tl(), ids, sec(dx)) : moveEntry(tl(), id, startT + sec(dx));
+        const sel = r.error ? undefined : copying ? r.ids! : ids.length > 1 ? ids : id;
+        // effects dragged onto another effects row move that many rows (a copy lands there too)
+        const to = it?.kind === "fx" ? rowUnder(u.clientX, u.clientY) : undefined;
+        const delta = to === undefined ? 0 : Number(to) - Number(it!.e.row ?? 0);
+        if (r.error || !delta) return commit(r, sel);
+        const fx = (copying ? r.ids! : ids).filter((x) => find(r.tl, x)?.kind === "fx");
+        if (refuseRows(fx.map((x) => fxKey(Math.min(63, Math.max(0, Number(find(r.tl, x)!.e.row ?? 0) + delta)))))) return void draw();
+        commit(shiftRows(r.tl, fx, delta), sel);
       }
     };
   };
-  // a bar reached by Tab is selected, as a click would
+  // the effects row under the pointer while an effect is dragged: outlined, or marked "no" when locked
+  const rowUnder = (x: number, y: number) => document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-fxrow]")?.dataset.fxrow;
+  function dropRow(r: string | undefined) {
+    for (const el of tracks.querySelectorAll(".track.drop, .track.drop-no")) el.classList.remove("drop", "drop-no");
+    const tr = r === undefined ? null : tracks.querySelector<HTMLElement>(`.lane[data-fxrow="${r}"]`)?.parentElement;
+    tr?.classList.add(rowLocked(fxKey(Number(r))) ? "drop-no" : "drop");
+  }
+  // a bar reached by Tab is selected, as a click would (the playhead stays: tabbing past bars must not scrub)
   tracks.addEventListener("focusin", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>(".clip");
-    if (b?.dataset.id && !isSel(b.dataset.id)) { commit({ tl: tl() }, b.dataset.id); seekTo(b.dataset.id); }
+    if (b?.dataset.id && !isSel(b.dataset.id)) commit({ tl: tl() }, b.dataset.id);
   });
   // selecting a bar takes the playhead to where it starts
   function seekTo(id: string) {
@@ -1205,7 +1264,12 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       drawTracks();
     }
     const del = el.closest<HTMLElement>("[data-fxdel]");
-    if (del) { const r = removeFxRow(tl(), Number(del.dataset.fxdel)); if (r.error) toast(r.error, "error"); else commit(r); }
+    if (del) {
+      const row = Number(del.dataset.fxdel), r = removeFxRow(tl(), row);
+      if (r.error) return void toast(r.error, "error");
+      p.lockedRows = shiftFxLocks(p.lockedRows ?? [], row);
+      commit(r);
+    }
     const ch = el.closest<HTMLElement>("[data-addchar]");
     if (ch) {
       const chars = readyChars(p.kit, has);

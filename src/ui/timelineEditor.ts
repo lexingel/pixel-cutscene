@@ -222,6 +222,29 @@ export const fxRows = (tl: Timeline): number => Math.max(tl.fx_rows ?? 1, ...tl.
 
 export const addFxRow = (tl: Timeline): EditResult => setField(tl, "(root)", "fx_rows", fxRows(tl) + 1);
 
+/** An effects row's lock key: "fx" for the bottom row, then "fx1", "fx2"... */
+export const fxKey = (r: number): string => (r ? `fx${r}` : "fx");
+
+/** Row locks after effects row `row` is taken out: its key goes, the keys above it move down one. */
+export const shiftFxLocks = (locks: string[], row: number): string[] =>
+  locks.flatMap((k) => {
+    const m = /^fx(\d*)$/.exec(k);
+    if (!m) return [k];
+    const r = Number(m[1] || 0);
+    return r === row ? [] : [fxKey(r > row ? r - 1 : r)];
+  });
+
+/** Moves effects `ids` `delta` rows up (or down), kept within rows 0-63. */
+export const shiftRows = (tl: Timeline, ids: string[], delta: number): EditResult =>
+  edit(tl, "(root)", (c) => {
+    for (const f of c.fx) {
+      if (!ids.includes(f.id)) continue;
+      const r = Math.min(63, Math.max(0, (f.row ?? 0) + delta));
+      if (r) f.row = r;
+      else delete f.row;
+    }
+  });
+
 /** Takes out an empty effects row; the rows above it move down one. */
 export const removeFxRow = (tl: Timeline, row: number): EditResult => {
   const n = fxRows(tl);

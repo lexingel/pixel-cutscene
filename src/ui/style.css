@@ -350,9 +350,13 @@ a { color: inherit; }
 .bar-pic { height: 16px; width: auto; max-width: 20px; image-rendering: pixelated; margin-right: 4px; flex: none; pointer-events: none; }
 .wave { position: absolute; inset: 3px auto 0 0; width: calc(100% * var(--wk, 1)); height: calc(100% - 3px); pointer-events: none; opacity: 0.45; }
 .wave path { stroke: var(--band, var(--ink)); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.clip > span { position: relative; }
+/* zoomed in, a bar that starts off-screen keeps its name at the left edge (overflow: clip, not hidden, so sticky works) */
+.clip > span { position: sticky; left: calc(var(--label) + 4px); }
 /* the playhead's time, at the top; the snap line while dragging */
-.ph-t { position: absolute; top: 2px; left: 2px; padding: 0 4px; font: 600 10px/16px var(--font-mono); color: var(--ground); background: var(--ink); border-radius: 3px; white-space: nowrap; }
+.ph-t { position: sticky; top: 2px; flex: none; margin: 2px 0 0 2px; padding: 0 4px; font: 600 10px/16px var(--font-mono); color: var(--ground); background: var(--ink); border-radius: 3px; white-space: nowrap; }
+.ph-t.flip { align-self: flex-end; margin: 2px 2px 0 0; } /* past the middle: on the left of the line, so it never sticks out at the end */
+.track.drop > .lane { outline: 2px dashed var(--focus); outline-offset: -2px; }
+.track.drop-no > .lane { outline: 2px dashed var(--muted); outline-offset: -2px; cursor: not-allowed; }
 .snap-guide { position: absolute; top: 0; width: 1px; pointer-events: none; z-index: 3; background: var(--focus); left: calc(var(--label) + 10px + ((100% - var(--label)) * var(--z) - 20px) * var(--g, 0)); }
 /* zoomed in: the whole scene, the visible part boxed */
 .overview { position: relative; height: 22px; margin-top: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; overflow: hidden; touch-action: none; }
@@ -405,10 +409,11 @@ a { color: inherit; }
   font: 12px/22px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums;
 }
 .tick.minor { top: 15px; padding: 0; }
+.tick.under-ph { color: transparent; }
 .clip {
   position: absolute; top: calc(4px + var(--k, 0) * var(--lh)); height: calc(var(--lh) - 4px); min-width: 44px; display: flex; align-items: center; padding: 0 6px;
   font-size: 12px; font-weight: 550; color: var(--ink); background: color-mix(in srgb, var(--c-place) 22%, var(--panel)); border: 1px solid color-mix(in srgb, var(--c-place) 50%, var(--panel)); border-radius: 4px;
-  cursor: grab; overflow: hidden; white-space: nowrap;
+  cursor: grab; overflow: clip; white-space: nowrap;
 }
 .clip span { overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .clip:hover { border-color: var(--c-place); }
@@ -432,6 +437,7 @@ a { color: inherit; }
 .edge:hover::after { background: var(--focus); }
 .playhead {
   position: absolute; top: 0; bottom: 0; width: 1px; pointer-events: none; z-index: 3; background: var(--ink);
+  display: flex; flex-direction: column; align-items: flex-start;
   left: calc(var(--label) + 10px + ((100% - var(--label)) * var(--z) - 20px) * var(--p, 0));
 }
 

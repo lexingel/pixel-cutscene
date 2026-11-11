@@ -472,7 +472,9 @@ test("copy a move and paste it onto another actor at the playhead", async ({ pag
 test("zoom the timeline: bars get wider, the names stay in view while it scrolls", async ({ page }) => {
   await openFixture(page);
   await page.getByRole("button", { name: "Tweak", exact: true }).click();
+  await expect(page.getByTestId("preview")).toHaveAttribute("data-ready", "1");
   const walk = page.locator("[data-id=a1]");
+  await expect(walk).toBeVisible();
   const w0 = (await walk.boundingBox())!.width;
   await page.getByRole("button", { name: "Zoom the timeline in" }).click();
   await page.getByRole("button", { name: "Zoom the timeline in" }).click();

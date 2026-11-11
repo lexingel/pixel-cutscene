@@ -84,7 +84,7 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
       ];
     }
     case "fx":
-      return [NUM("t", "Start (s)"), NUM("dur", "Length (s)", true), NUM("x", "X"), NUM("y", "Y"), { key: "flip", label: "Faces left", kind: "bool", optional: true }];
+      return [NUM("t", "Start (s)"), NUM("dur", "Length (s)", true), NUM("x", "X"), NUM("y", "Y"), NUM("row", "Row (0 = back, higher in front)", true), { key: "flip", label: "Faces left", kind: "bool", optional: true }];
     case "time":
       return [
         { key: "kind", label: "Effect", kind: "select", options: ["slow", "hold"], text: (o: string) => (o === "slow" ? "slow motion" : "hold the frame") },
