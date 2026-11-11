@@ -87,3 +87,12 @@ test("missingReport covers faces, anim: actions, fx and audio", () => {
   expect(rep.some((r) => r.used_by === "x1")).toBe(false);
   expect(line("sting", "unapproved", "u1")).toBe(true);
 });
+
+test("missingReport lists a shot's parallax layers", () => {
+  const t = tl();
+  const s = t.shots[0];
+  if (s.type !== "wide") throw new Error("fixture");
+  Object.assign(s, { far: "hills", near: "grass" });
+  const rep = missingReport(t, kit());
+  expect(rep.filter((r) => r.used_by === "s1").map((r) => r.what)).toEqual(expect.arrayContaining(["hills", "grass"]));
+});

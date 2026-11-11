@@ -81,6 +81,7 @@ export function validateTimeline(d: unknown): string[] {
     switch (str(s.type)) {
       case "wide":
         if (!whole(s.bg_scale ?? 1)) e.push(`${id}.bg_scale: must be a whole number of 1 or more`);
+        for (const k of ["far", "near"]) if (s[k] !== undefined && !(typeof s[k] === "string" && s[k])) e.push(`${id}.${k}: must be an asset id`);
         if (!Array.isArray(s.camera) || s.camera.length === 0) e.push(`${id}.camera: a wide shot needs camera keys`);
         else if (!s.camera.every((k: unknown) => isObj(k) && hasNum(k, "t") && hasNum(k, "x") && hasNum(k, "y"))) {
           e.push(`${id}.camera: every key needs t, x and y numbers`);

@@ -32,6 +32,9 @@ test("a stranger makes and exports a cutscene with no keys", async ({ page }) =>
   await page.getByTitle("Shot 1 · wide").click(); // the shot bar (its label span ignores the pointer)
   await page.getByLabel("Upload background").setInputFiles("test/fixtures/bg/field.png");
   await expect(page.getByLabel("Background", { exact: true })).toHaveValue("field");
+  await expect(page.getByLabel("Ground line (y)")).not.toHaveValue(""); // found in the picture: the sand strip
+  await page.getByLabel("Far layer (behind, slower)").selectOption("field");
+  await expect(page.getByLabel("Far layer (behind, slower)")).toHaveValue("field");
   await page.getByTestId("drawer").getByRole("button", { name: "hero", exact: true }).click();
   await page.getByRole("button", { name: "Add a move for hero" }).click();
   await page.getByRole("menuitem", { name: "Look around" }).click();

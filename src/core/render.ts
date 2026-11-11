@@ -163,8 +163,17 @@ function drawShot(p: RenderInput, shot: Shot, t: number, out: Img): void {
       cam.x += round(Math.sin(into * 71) * a);
       cam.y += round(Math.cos(into * 53) * a * 0.6);
     }
+    const k = shot.bg_scale ?? 1;
+    // a parallax layer at f times the camera, repeated across: far (0.5) behind the bg's see-through sky, near (1.5) over the actors
+    const layer = (id: string | undefined, f: number) => {
+      const im = assetImg(id ?? "");
+      if (!im) return;
+      const w = im.w * k, y = -round(cam.y * f);
+      for (let x = -(((round(cam.x * f) % w) + w) % w); x < out.w; x += w) blit(out, im, x, y, k);
+    };
+    layer(shot.far, 0.5);
     const bg = assetImg(shot.bg ?? "");
-    if (bg) blit(out, bg, -cam.x, -cam.y, shot.bg_scale ?? 1);
+    if (bg) blit(out, bg, -cam.x, -cam.y, k);
 
     const frames = charFrames(kit, p.img, draft, has);
     const posed = tl.actors
@@ -182,6 +191,7 @@ function drawShot(p: RenderInput, shot: Shot, t: number, out: Img): void {
       } else blit(out, img, x, y, 1, q!.flip);
     }
 
+    layer(shot.near, 1.5);
     const fx = tl.fx.flatMap((f) => fxFrame(p, f as FxLive, t, cam, asset) ?? []);
     if (shot.grade || shot.vignette) light(out, shot.grade, shot.vignette, shot.grade ? fx.map((f) => ({ x: f.x + f.img.w / 2, y: f.y + f.img.h / 2 })) : []);
     for (const f of fx) blit(out, f.img, f.x, f.y, 1, f.flip); // effects glow: drawn over the grade

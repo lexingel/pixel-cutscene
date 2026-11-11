@@ -1,4 +1,5 @@
 import { coverScale } from "../core/starter";
+import { findGround } from "../core/ground";
 import { readyChars, type Kit } from "../core/kit";
 import { ACTIONS, KINDS } from "../core/timeline";
 import { audioPlan, elevenKey, generateAudio, voicesFor } from "./eleven";
@@ -39,6 +40,8 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
       return [
         { key: "bg", label: "Background", kind: "select", options: ["", ...assetIds(kit, ["bg", "backdrop"])], optional: true },
         ...(e.type === "wide" ? [NUM("bg_scale", "Background scale"), NUM("ground", "Ground line (y)", true),
+          { key: "far", label: "Far layer (behind, slower)", kind: "select" as Kind, options: ["", ...assetIds(kit, ["bg", "backdrop"])], optional: true, text: (o: string) => o || "none" },
+          { key: "near", label: "Near layer (in front, faster)", kind: "select" as Kind, options: ["", ...assetIds(kit, ["bg", "backdrop"])], optional: true, text: (o: string) => o || "none" },
           { key: "grade", label: "Light", kind: "select" as Kind, options: ["", "night", "dusk", "cold", "sepia"], optional: true, text: (o: string) => o || "daylight" }, // effects light up what is near them
           { key: "vignette", label: "Dark corners", kind: "bool" as Kind, optional: true },
         ] : [
@@ -359,9 +362,12 @@ function bgUpload(p: Project, tl: Timeline, id: string, apply: (r: EditResult) =
     const wide = find(tl, id)?.e.type === "wide";
     const path = freePath(p, "bg/", `${aid}.png`);
     p.files.set(path, f);
-    p.kit.assets[aid] = { approved: true, source: "user", kind: wide ? "bg" : "backdrop", path };
+    const g = wide ? findGround(img) : undefined;
+    p.kit.assets[aid] = { approved: true, source: "user", kind: wide ? "bg" : "backdrop", path, ...(g !== undefined ? { ground: g } : {}) };
     let r = setField(tl, id, "bg", aid);
-    if (wide && !r.error) r = setField(r.tl, id, "bg_scale", coverScale(p.canvas, img));
+    const k = coverScale(p.canvas, img);
+    if (wide && !r.error) r = setField(r.tl, id, "bg_scale", k);
+    if (g !== undefined && !r.error) r = setField(r.tl, id, "ground", g * k); // feet on the floor this picture shows
     apply(r);
     kitChanged?.();
   };
@@ -379,6 +385,8 @@ function bgGenerate(p: Project, id: string, apply: (r: EditResult) => void, kitC
     await generateShotBg(p, id, (bg) => {
       let r = setField(p.tl!, id, "bg", bg);
       if (!r.error) r = setField(r.tl, id, "bg_scale", bgScale(p.canvas));
+      const g = p.kit.assets[bg]?.ground;
+      if (g !== undefined && !r.error) r = setField(r.tl, id, "ground", g * bgScale(p.canvas));
       apply(r);
       kitChanged?.();
     });

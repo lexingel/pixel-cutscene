@@ -378,3 +378,55 @@ describe("scale 2 characters", () => {
     expect(count(r.out, [0, 255, 0, 255])).toBe(0);
   });
 });
+
+describe("parallax layers", () => {
+  // bg: 40 px wide, see-through on the top half (sky); far: a 10 px stripe pattern; near: one 2 px post
+  const sky = () => {
+    const im = solid(40, 40, 0, 200, 0);
+    for (let i = 0; i < 40 * 20; i++) im.px[i * 4 + 3] = 0;
+    return im;
+  };
+  const far = () => {
+    const im = solid(10, 40, 0, 0, 0);
+    for (let y = 0; y < 40; y++) im.px.set([250, 0, 0, 255], (y * 10) * 4); // red at x = 0 of every tile
+    return im;
+  };
+  const near = () => {
+    const im = solid(20, 40, 0, 0, 0, 0);
+    for (let y = 0; y < 40; y++) im.px.set([0, 0, 250, 255], (y * 20 + 5) * 4); // blue post at x = 5
+    return im;
+  };
+  const scene = (camX: number) => {
+    const t = flat(tl());
+    const s = t.shots[0];
+    if (s.type !== "wide") throw new Error("fixture");
+    Object.assign(s, { bg: "b", far: "f", near: "n", bg_scale: 1, camera: [{ t: 0, x: camX, y: 0 }] });
+    t.actors = [{ id: "w", char: "legend_warrior", x: 5, y: 40, actions: [] }];
+    const kit: Kit = {
+      chars: { legend_warrior: { view: "side", anims: { idle: { ...piece, frames: ["i.png"] } } } }, faces: {},
+      assets: { b: { ...piece, kind: "bg", path: "b.png" }, f: { ...piece, kind: "bg", path: "f.png" }, n: { ...piece, kind: "bg", path: "n.png" } },
+    };
+    return setup(t, kit, { "b.png": sky(), "f.png": far(), "n.png": near(), "i.png": solid(4, 4, 255, 255, 0) }, false, 40, 40);
+  };
+
+  test("far shows through the see-through sky, repeats, and moves at half the camera", () => {
+    const r = scene(0);
+    r.draw(1);
+    expect(at(r.out, 0, 5)).toEqual([250, 0, 0, 255]);
+    expect(at(r.out, 30, 5)).toEqual([250, 0, 0, 255]); // tiled across the frame
+    expect(at(r.out, 0, 30)).toEqual([0, 200, 0, 255]); // the bg's ground covers it
+    const m = scene(4);
+    m.draw(1);
+    expect(at(m.out, 8, 5)).toEqual([250, 0, 0, 255]); // camera 4 -> far moved 2: tile edge at 10 - 2
+  });
+
+  test("near is drawn over the actors and moves at one and a half times the camera", () => {
+    const r = scene(0);
+    r.draw(1);
+    expect(at(r.out, 5, 38)).toEqual([0, 0, 250, 255]); // the post over the actor standing at x 5
+    expect(at(r.out, 6, 38)).toEqual([255, 255, 0, 255]); // the actor next to it
+    const m = scene(2);
+    m.draw(1);
+    expect(at(m.out, 2, 10)).toEqual([0, 0, 250, 255]); // camera 2 -> near moved 3
+  });
+});

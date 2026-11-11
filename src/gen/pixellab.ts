@@ -22,6 +22,7 @@
  * - balance: GET /balance (free). Job polling: GET /background-jobs/{id} (free); both go through callFree.
  * Paid calls go only through callApi with the caller's ticket; a failed job is not charged ("Charged at completion").
  */
+import { findGround } from "../core/ground";
 import { callApi, callFree } from "../ai/http";
 import type { PaidTicket } from "../ai/confirm";
 import { freePath } from "../core/cast";
@@ -376,7 +377,8 @@ export async function genBackgroundInto(p: Project, key: string, id: string, des
   if (old) p.files.delete(old.path);
   const path = freePath(p, "bg/", `${id}.png`);
   p.files.set(path, blob);
-  p.kit.assets[id] = { approved: false, source: "pixellab", kind: "bg", path };
+  const g = findGround(img);
+  p.kit.assets[id] = { approved: false, source: "pixellab", kind: "bg", path, ...(g !== undefined ? { ground: g } : {}) };
 }
 
 export async function genMouthsInto(p: Project, key: string, face: string, expr: string, ticket: PaidTicket, io: Io = browserIo): Promise<void> {

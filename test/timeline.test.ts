@@ -164,3 +164,13 @@ test("a_sound_length_is_half_a_second_to_thirty", () => {
   tl.audio[0].dur = 3;
   expect(vt(tl)).toEqual([]);
 });
+
+test("parallax layers: far and near are asset ids on a wide shot", () => {
+  const d = mini();
+  d.shots[0].far = "hills";
+  d.shots[0].near = "grass";
+  expect(errs(d)).toEqual([]);
+  d.shots[0].far = 3;
+  d.shots[0].near = "";
+  expect(errs(d)).toEqual(expect.arrayContaining(["s1.far: must be an asset id", "s1.near: must be an asset id"]));
+});

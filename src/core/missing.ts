@@ -10,7 +10,7 @@ export function missingReport(tl: Timeline, kit: Kit, draft = false, has?: (path
     if (why !== "ok") out.push({ what, why, used_by });
   };
   for (const s of tl.shots) {
-    if (s.bg) add(s.bg, assetStatus(kit, s.bg, draft, has), s.id);
+    for (const id of [s.bg, s.type === "wide" ? s.far : "", s.type === "wide" ? s.near : ""]) if (id) add(id, assetStatus(kit, id, draft, has), s.id);
     if (s.type === "closeup") add(`face ${s.face} ${s.expr}`, faceStatus(kit, s.face, s.expr, draft, has), s.id);
   }
   for (const a of tl.actors) {
