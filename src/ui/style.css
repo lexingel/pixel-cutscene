@@ -289,10 +289,19 @@ a { color: inherit; }
 .btn.icon[data-act=play] { width: 36px; height: 36px; border-radius: 50%; color: var(--ground); background: var(--ink); border-color: var(--ink); }
 .btn.icon[data-act=play]:hover { background: color-mix(in srgb, var(--ink) 85%, var(--ground)); }
 .transport .sep { width: 1px; height: 20px; background: var(--line); margin: 0 2px; }
+.transport { column-gap: 4px; }
+.transport .btn.quiet { padding: 6px 8px; }
+.transport .btn.icon.quiet { width: 28px; }
+.transport .timecode { font-size: 14px; padding: 0 4px; }
+/* − and + read as timeline zoom: a small label and one shared pill */
+.zoom { display: inline-flex; align-items: center; gap: 0; padding-left: 8px; border: 1px solid var(--line); border-radius: 999px; }
+.zoom-lbl { font: 12px var(--font-ui); color: var(--muted); margin-right: 2px; }
+.zoom { padding-right: 2px; }
+.zoom .btn.icon.quiet { height: 24px; width: 26px; padding: 0; font-size: 16px; line-height: 1; border-radius: 999px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .timecode { font: 500 15px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); min-width: 0; white-space: nowrap; padding: 0 6px; }
 .timecode b { color: var(--ink); font-weight: 600; }
-.timecode .frame-no { font: 12px var(--font-ui); }
+.timecode .frame-no { font: 12px var(--font-ui); font-variant-numeric: tabular-nums; display: inline-block; min-width: 9ch; } /* fixed width: a growing frame number must not rewrap the transport while playing */
 .btn.icon { width: 34px; height: 32px; padding: 0; display: grid; place-items: center; }
 .btn.quiet { background: transparent; border-color: transparent; padding: 6px 10px; }
 .btn.quiet:hover { background: var(--raised); border-color: var(--line); }

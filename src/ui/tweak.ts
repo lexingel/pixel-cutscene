@@ -78,8 +78,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       <button class="btn quiet" type="button" data-act="undo" title="Undo (Ctrl+Z)">Undo</button>
       <button class="btn quiet" type="button" data-act="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
       <span class="sep"></span>
-      <button class="btn icon quiet" type="button" data-act="zoom-out" aria-label="Zoom the timeline out" title="Zoom the timeline out (Ctrl+wheel on the tracks)">−</button>
-      <button class="btn icon quiet" type="button" data-act="zoom-in" aria-label="Zoom the timeline in" title="Zoom the timeline in (Ctrl+wheel on the tracks)">+</button>
+      <span class="zoom" role="group" aria-label="Timeline zoom"><span class="zoom-lbl" aria-hidden="true">Zoom</span><button class="btn icon quiet" type="button" data-act="zoom-out" aria-label="Zoom the timeline out" title="Zoom the timeline out (Ctrl+wheel on the tracks)">−</button><button class="btn icon quiet" type="button" data-act="zoom-in" aria-label="Zoom the timeline in" title="Zoom the timeline in (Ctrl+wheel on the tracks)">+</button></span>
       <span class="grow"></span>
       <button class="btn quiet" type="button" data-act="keys" aria-haspopup="dialog" title="Keyboard shortcuts (?)">Keys</button>
       <button class="btn quiet" type="button" data-act="shot" aria-haspopup="menu" aria-expanded="false" title="Add a shot or a transition at the playhead">+ Shot ▾</button>
