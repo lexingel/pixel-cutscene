@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { openApprovals } from "./fixture";
 
 // An effect the scene names but the kit lacks (an AI draft's own idea) is swapped for a library one from Needs approval.
 test("a missing effect is picked from the library in Needs approval", async ({ page }) => {
@@ -19,9 +20,10 @@ test("a missing effect is picked from the library in Needs approval", async ({ p
     input.dispatchEvent(new Event("change"));
   });
   await expect(page.getByLabel("Project name")).toHaveValue("Fx pick");
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
+  await openApprovals(page);
   await page.getByRole("button", { name: "Pick from library" }).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.locator("dialog[open]:not(.approvals)");
   await dialog.getByLabel("Search effects").fill("fire breath");
   await expect(dialog.getByRole("button", { name: /^Use / })).toHaveCount(1);
   await dialog.getByRole("button", { name: "Use fire breath" }).click();

@@ -23,7 +23,7 @@ test("an effect's angle and facing are set in the inspector", async ({ page }) =
     input.dispatchEvent(new Event("change"));
   });
   await expect(page.getByLabel("Project name")).toHaveValue("Fx aim");
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.locator(".clip.fx").first().click();
   const angle = page.locator(".inspector").getByLabel("Angle");
   await angle.fill("45");

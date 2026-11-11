@@ -3,7 +3,7 @@ import { openFixture } from "./fixture";
 
 const tweak = async (page: import("@playwright/test").Page, opts: Parameters<typeof openFixture>[1] = {}) => {
   await openFixture(page, opts);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await expect(page.getByTestId("preview")).toHaveAttribute("data-ready", "1");
 };
 
@@ -93,6 +93,6 @@ test("dragging the end of an older looping effect starts from the length its bar
   await page.mouse.down();
   await page.mouse.move(g.x + g.width / 2 - 8, g.y + g.height / 2, { steps: 4 });
   await page.mouse.up();
-  const D = parseFloat((await page.getByTestId("timecode").textContent())!.split("/")[1]);
+  const D = parseFloat((await page.getByTestId("timecode").textContent())!.split("/")[1].split(":")[1]); // " 00:05.00 · frame …"
   expect(Number(await dur.inputValue())).toBeGreaterThan(shown * D - 1); // a little shorter, not 0.5 s
 });

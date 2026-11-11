@@ -62,7 +62,8 @@ async function buildProject(page: Page) {
 /** Puts the playhead at seconds + frames/30, by key presses from where it is now (ArrowRight = 1 s, Shift = 1 frame). */
 async function seekTo(page: Page, seconds: number, frames: number) {
   const tc = page.getByTestId("timecode").locator("b");
-  const now = Math.round(Number(await tc.innerText()) * 30);
+  const [m, sec] = (await tc.innerText()).split(":"); // "00:03.40"
+  const now = Math.round((Number(m) * 60 + Number(sec)) * 30);
   const want = seconds * 30 + frames;
   expect(want).toBeGreaterThanOrEqual(now);
   await page.getByTestId("preview").focus();
@@ -70,7 +71,7 @@ async function seekTo(page: Page, seconds: number, frames: number) {
   let left = want - now;
   for (; left >= 30; left -= 30) await page.keyboard.press("ArrowRight");
   for (; left > 0; left--) await page.keyboard.press("Shift+ArrowRight");
-  await expect(tc).toHaveText((want / 30).toFixed(2));
+  await expect(tc).toHaveText(`00:${(want / 30).toFixed(2).padStart(5, "0")}`); // scenes here are under a minute
 }
 
 /** No entry id (a1, f1, s1, actor1, hero1...) in the visible text, a tooltip or an aria-label. */
@@ -90,7 +91,7 @@ const addMove = async (page: Page, actor: string, move: string) => {
 test("three heroes, a dragon, fire, dust", async ({ page }) => {
   test.setTimeout(300_000);
   await buildProject(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await expect(page.getByTestId("preview")).toHaveAttribute("data-ready", "1");
 
   // the dragon: dragged from the drawer, feet at (160, 400)
@@ -134,14 +135,14 @@ test("three heroes, a dragon, fire, dust", async ({ page }) => {
   await page.getByTestId("preview").focus();
   await page.keyboard.press("Escape");
   for (let i = 0; i < 12; i++) await page.keyboard.press("Shift+ArrowLeft");
-  await expect(page.getByTestId("timecode").locator("b")).toHaveText("3.40");
+  await expect(page.getByTestId("timecode").locator("b")).toHaveText("00:03.40");
   await page.locator(".clip[title$=\"· Turn to dust\"]").first().click(); // some selection, to show the inspector with a plain label
   await expectNoIds(page);
   await page.waitForTimeout(300);
   await page.screenshot({ path: "test-results/dragon-1280x800.png" });
 
   // a full export: 1920x1080, DURATION x 30 frames (as a Draft only if something is still missing)
-  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   const draftBox = page.getByLabel(/Draft/);
   if (await draftBox.isVisible()) await draftBox.check();
   const dl = page.waitForEvent("download", { timeout: 240_000 });

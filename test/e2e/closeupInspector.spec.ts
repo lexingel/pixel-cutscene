@@ -24,7 +24,7 @@ test("a close-up's face and expression are picked from lists", async ({ page }) 
     input.dispatchEvent(new Event("change"));
   });
   await expect(page.getByLabel("Project name")).toHaveValue("Face pick");
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.locator(".clip.shot", { hasText: "close-up" }).click();
   const ins = page.locator(".inspector");
   await expect(ins.getByLabel("Face")).toHaveValue("knight");

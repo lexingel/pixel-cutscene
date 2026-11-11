@@ -18,7 +18,11 @@ test("scene first: draft names a ghost, Cast offers to make it", async ({ page }
     localStorage.setItem("pcs.keys", JSON.stringify({ ai: { provider: "anthropic", model: "m", key: "test-ai" }, pixellab: "test-key" })),
   );
   const seen: string[] = [];
-  await page.route("https://**", (route) => (seen.push(route.request().url()), route.abort()));
+  await page.route("https://**", (route) => {
+    // the Google Fonts stylesheet is the app's own, not data leaving
+    if (!/^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(route.request().url())) seen.push(route.request().url());
+    return route.abort();
+  });
   await page.route("https://api.anthropic.com/**", (route) => {
     const r = route.request();
     const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "x-api-key, anthropic-version, anthropic-dangerous-direct-browser-access, content-type" };
@@ -30,14 +34,14 @@ test("scene first: draft names a ghost, Cast offers to make it", async ({ page }
   await page.goto("/");
   await page.getByRole("button", { name: "Start a new cutscene" }).click();
   const steps = page.getByRole("navigation", { name: "Steps" }).getByRole("button");
-  await expect(steps).toHaveText(["① Scene", "② Cast", "③ Tweak", "④ Export"]);
+  await expect(steps).toHaveText(["1Scene", "2Cast", "3Tweak", "4Export"]);
   await expect(steps.first()).toHaveAttribute("aria-current", "step");
 
   await page.getByTestId("scene-text").fill("A ghost rises in a dark cave.");
   await page.getByRole("button", { name: "Draft it" }).click();
   await page.locator("dialog[open]").getByRole("button", { name: "Run it" }).click();
 
-  await expect(page.getByRole("button", { name: "② Cast" })).toHaveAttribute("aria-current", "step");
+  await expect(page.getByRole("button", { name: "Cast", exact: true })).toHaveAttribute("aria-current", "step");
   const card = page.getByTestId("needed").locator(".need-card", { hasText: "ghost" });
   await expect(card).toContainText("needs idle, float");
   await expect(card.getByLabel("Look of ghost")).toHaveValue(look);
@@ -93,7 +97,7 @@ test("without an AI key, Write it myself leads and Draft it says what it needs",
 test("the scene size names the real export size (the sample is 320×180 at ×4)", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Open the sample" }).click();
-  await page.getByRole("button", { name: "① Scene" }).click();
+  await page.getByRole("button", { name: "Scene", exact: true }).click();
   await expect(page.getByLabel("Scene size")).toHaveValue("");
   await expect(page.locator(".scene-size option:checked")).toHaveText("320×180, ×4");
 });

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { openApprovals } from "./fixture";
 
 test("music library: pick a track for a missing music clip", async ({ page }) => {
   await page.goto("/");
@@ -20,7 +21,8 @@ test("music library: pick a track for a missing music clip", async ({ page }) =>
     input.dispatchEvent(new Event("change"));
   });
   await expect(page.getByLabel("Project name")).toHaveValue("Music fixture");
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
+  await openApprovals(page);
   const row = page.getByTestId("needs").locator("li", { hasText: "theme" });
   await expect(row.locator(".tag")).toHaveText("missing");
   await row.getByRole("button", { name: "Pick from library" }).click();

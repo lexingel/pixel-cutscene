@@ -6,6 +6,7 @@ import { confirmDialog, toast } from "./dialogs";
 import { refPath } from "../gen/pixellab";
 import { cleanAnim, type CleanReport } from "../core/cleanup";
 import { NO_KEY, generate, genPlan, pixellabKey, renderGenChar } from "./pixellab";
+import { CAT_LABEL } from "./category";
 
 type Picked = { rel: string; file: File }; // rel = path inside the character folder
 
@@ -237,7 +238,8 @@ export function renderCast(root: HTMLElement, p: Project, changed: () => void, g
         const idle = p.kit.chars[n].anims.idle;
         const waiting = !idle ? "no idle yet" : idle.approved ? "" : "idle not approved yet";
         text.querySelector(".small")!.textContent = [summary(p.kit.chars[n].anims), loose ? `${loose} unassigned` : "", waiting].filter(Boolean).join(" · ");
-        b.append(thumb, text);
+        b.dataset.cat = "char";
+        b.append(Object.assign(document.createElement("span"), { className: "d-band", textContent: CAT_LABEL.char, ariaHidden: "true" }), thumb, text);
         b.onclick = () => ((selected = n), draw());
         li.append(b);
         return li;
@@ -256,7 +258,8 @@ export function renderCast(root: HTMLElement, p: Project, changed: () => void, g
         const need = p.cast[id];
         const li = document.createElement("li");
         li.className = "need-card";
-        li.innerHTML = `<div class="row between"><strong></strong><span class="small"></span></div>
+        li.dataset.cat = "char";
+        li.innerHTML = `<span class="card-band" aria-hidden="true">${CAT_LABEL.char} · needed</span><div class="row between"><strong></strong><span class="small"></span></div>
           <label class="need-look"><span class="small">Look</span><textarea rows="3"></textarea></label>
           <div class="row"><button class="btn primary" type="button" data-act="gen-need">Generate with PixelLab</button>
           <button class="btn" type="button" data-act="own-need">Use my sprites</button>
@@ -295,10 +298,10 @@ export function renderCast(root: HTMLElement, p: Project, changed: () => void, g
       <button class="btn primary" type="button" data-act="next">Next: Tweak</button></div></header><div class="anims"></div>`;
     main.querySelector("h1")!.textContent = name;
     main.querySelector(".hint")!.textContent = loose.length
-      ? `Pick an animation for each unassigned frame below, then add another character or go to ③ Tweak.`
+      ? `Pick an animation for each unassigned frame below, then add another character or go to Tweak.`
       : !c.anims.idle
         ? `Every character needs idle frames: drop a folder with idle_0.png and up, or assign frames to idle.`
-        : `Add another character, or go to ③ Tweak when your cast is complete.`;
+        : `Add another character, or go to Tweak when your cast is complete.`;
     main.querySelector<HTMLButtonElement>("[data-act=next]")!.onclick = () => go(3);
     // big creatures: drawn at twice their pixel size (Scale2x), so a bg_scale 2 scene does not leave them tiny
     const two = main.querySelector<HTMLInputElement>("[data-act=scale]")!;

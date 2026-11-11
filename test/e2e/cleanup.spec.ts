@@ -31,7 +31,7 @@ test("clean up fixes a generated walk and can be undone after a reload", async (
     input.dispatchEvent(new Event("change"));
   });
   await expect(page.getByLabel("Project name")).toHaveValue("Clean test");
-  await page.getByRole("button", { name: "② Cast" }).click();
+  await page.getByRole("button", { name: "Cast", exact: true }).click();
 
   await page.getByRole("button", { name: "Clean up hero walk" }).click();
   await expect(page.getByText("hero walk: 1 stray pixel fixed, 2 floating frames set on the ground.")).toBeVisible();
@@ -39,7 +39,7 @@ test("clean up fixes a generated walk and can be undone after a reload", async (
   await expect(page.getByText("hero idle is already clean.")).toBeVisible(); // the eye is a detail, not a speck
 
   await page.reload();
-  await page.getByRole("button", { name: "② Cast" }).click();
+  await page.getByRole("button", { name: "Cast", exact: true }).click();
   await page.getByRole("button", { name: "Undo clean-up of hero walk" }).click();
   await expect(page.getByRole("button", { name: "Undo clean-up of hero walk" })).toHaveCount(0);
   await page.getByRole("button", { name: "Clean up hero walk" }).click(); // the original frames are back, so it cleans again

@@ -1,4 +1,5 @@
 import { activeAudio } from "../core/audioPlan";
+import { catOfTrack, type Cat } from "./category";
 import { framingIssues, type FrameIssue } from "../core/framing";
 import { sceneNotes } from "../core/pacing";
 import { animStatus, assetStatus, type Img } from "../core/kit";
@@ -36,12 +37,18 @@ const ICON_PAUSE = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden=
 const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 
+/** 4.12 s as "00:04.12": minutes, seconds, hundredths. */
+export const clock = (s: number) => {
+  const c = Math.round(s * 100);
+  return `${String(Math.floor(c / 6000)).padStart(2, "0")}:${((c % 6000) / 100).toFixed(2).padStart(5, "0")}`;
+};
+
 let clipboard: Clip | null = null; // Ctrl+C / Ctrl+V; kept while the tab is open, across projects
 
 export function renderTweak(root: HTMLElement, p: Project, changed: () => void, go: (n: Step) => void): void {
   if (!p.tl) {
     root.innerHTML = `<section class="empty-page"><h1>Tweak</h1>
-      <p class="hint">There is no timeline yet. Draft one from a description in ① Scene, or start an empty one and build it here.</p>
+      <p class="hint">There is no timeline yet. Draft one from a description in Scene, or start an empty one and build it here.</p>
       <div class="row"><button class="btn primary" type="button" data-act="empty">Start an empty timeline</button>
       <button class="btn" type="button" data-act="scene">Go to Scene</button></div></section>`;
     root.querySelector<HTMLButtonElement>("[data-act=empty]")!.onclick = () => {
@@ -76,13 +83,21 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       <span class="grow"></span>
       <button class="btn quiet" type="button" data-act="keys" aria-haspopup="dialog" title="Keyboard shortcuts (?)">Keys</button>
       <button class="btn quiet" type="button" data-act="shot" aria-haspopup="menu" aria-expanded="false" title="Add a shot or a transition at the playhead">+ Shot ▾</button>
+      <span class="brk" aria-hidden="true"></span>
+      <span class="scale-line" data-testid="scale-line"></span>
       <span class="status" data-testid="status"></span>
       <button class="btn primary" type="button" data-act="next">Next: Export</button>
     </div>
     <div class="tracks" data-testid="tracks"></div>
-    <aside class="side"><section class="inspector"></section><section class="guide-box" role="region" aria-label="Getting started" hidden></section><section class="frame-box" data-testid="framing" hidden></section><section class="needs-box"></section></aside>
+    <aside class="side"><section class="inspector"></section><section class="guide-box" role="region" aria-label="Getting started" hidden></section><section class="frame-box" data-testid="framing" hidden></section></aside>
+    <dialog class="approvals" aria-label="Approve pieces"><div class="needs-box"></div><div class="row end"><button class="btn" type="button" data-act="approvals-close">Close</button></div></dialog>
   </div>`;
   const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
+  const approvals = $<HTMLDialogElement>(".approvals");
+  const openApprovals = () => (approvals.open ? undefined : approvals.showModal());
+  $(".tweak").addEventListener("pc:approvals", openApprovals); // the top-bar band asks for it
+  $<HTMLButtonElement>("[data-act=approvals-close]").onclick = () => approvals.close();
+  approvals.onclose = () => root.ownerDocument.querySelector<HTMLElement>("[data-testid=next-band]:not([hidden])")?.focus(); // Esc lands back on the band
   const canvas = $<HTMLCanvasElement>(".preview");
   const stage = $(".stage");
   const over = $<HTMLCanvasElement>(".overlay");
@@ -92,6 +107,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   canvas.height = H;
   over.width = W;
   over.height = H;
+  $("[data-testid=scale-line]").textContent = `${W}×${H} · ×${p.canvas.exportScale} → ${W * p.canvas.exportScale}×${H * p.canvas.exportScale} · pixel-exact`;
   const g = canvas.getContext("2d")!;
   const frame: Img = { w: W, h: H, px: new Uint8ClampedArray(W * H * 4) };
 
@@ -157,7 +173,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     if (z) zoomFrame(frame, z.z, z.x, z.y, 1, zoomed, p.canvas.exportScale);
     view = z ? zoomView(W, H, z.z, z.x, z.y, 1, p.canvas.exportScale) : null;
     g.putImageData(new ImageData(z ? zoomed : frame.px, W, H), 0, 0);
-    $("[data-testid=timecode]").innerHTML = `<b>${t.toFixed(2)}</b> / ${T.duration.toFixed(2)} s <span class="muted">· frame ${Math.round(t * FPS)}</span>`;
+    $("[data-testid=timecode]").innerHTML = `<b>${clock(t)}</b> / ${clock(T.duration)} <span class="frame-no">· frame ${Math.round(t * FPS)}</span>`;
     if (!playing) say(T); // read out where a stopped playhead is, never every frame of playback
     tracks.style.setProperty("--p", String(t / T.duration));
     if (playing && zoom > 1) { // a zoomed strip follows the playhead
@@ -666,8 +682,8 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const ticks = Array.from({ length: Math.ceil(D) }, (_, s) => `<span class="tick" style="left:${pct(s / D)}">${s}</span>`).join("");
     const shots = T.shots.map((s) => bar(s.id, shotName(T, s.id), s.start, s.end - s.start, { cls: "shot", warn: warn.has(s.id), locked: s.locked })).join("")
       + T.shots.slice(0, -1).map((s, i) => `<i class="edge" data-a="${esc(s.id)}" data-b="${esc(T.shots[i + 1].id)}" style="left:${pct(s.end / D)}" title="Drag to move the cut"></i>`).join("");
-    const row = (label: string, lane: string, attrs = "", sel = false, cls = "", n = 1) =>
-      `<div class="track ${cls}"${n > 1 ? ` style="min-height:${4 + n * 26}px"` : ""}><div class="track-label${sel ? " sel" : ""}" ${attrs}>${label}</div><div class="lane" ${attrs}>${lane}</div></div>`;
+    const row = (label: string, lane: string, attrs = "", sel = false, cls = "", n = 1, cat?: Cat) =>
+      `<div class="track ${cls}"${cat ? ` data-cat="${cat}"` : ""}${n > 1 ? ` style="min-height:${4 + n * 26}px"` : ""}><div class="track-label${sel ? " sel" : ""}" ${attrs}>${label}</div><div class="lane" ${attrs}>${lane}</div></div>`;
     // bars that overlap stack in lanes; a short bar counts as 44 px wide so its label shows
     const minS = (D * 44) / Math.max(200, (tracks.clientWidth - 92) * zoom);
     const stack = (items: { t: number; len?: number }[]) => {
@@ -687,7 +703,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
           tip: x.do === "idle" && !downAt(a, x.t - 1e-6, frames) ? "Does nothing here: the actor is already standing. Stand up gets an actor back up after a fall, a kneel or a death." : undefined,
         })).join(""),
         `data-actor="${esc(a.id)}" title="Double-click the lane to add an action"`,
-        a.id === selected, "", n,
+        a.id === selected, "", n, catOfTrack("actor"),
       );
     }).join("");
     const fxSpans = T.fx.map((f) => {
@@ -702,10 +718,10 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const focused = (document.activeElement as HTMLElement | null)?.closest?.(".clip")?.getAttribute("data-id");
     tracks.innerHTML = `
       ${row("", ticks, `data-ruler="1" title="Click or drag to move the playhead"`, false, "ruler")}
-      ${row("Shots", shots)}
+      ${row("Shots", shots, "", false, "", 1, catOfTrack("shots"))}
       ${actors || row(`<span class="small">No actors</span>`, `<span class="lane-hint">Drag a character in from Cast on the left</span>`)}
-      ${row("Effects", fx, "", false, "", fxLanes.n)}
-      ${row("Audio", audio, "", false, "", auLanes.n)}
+      ${row("Effects", fx, "", false, "", fxLanes.n, catOfTrack("fx"))}
+      ${row("Audio", audio, "", false, "", auLanes.n, catOfTrack("sfx"))}
       <div class="playhead" aria-hidden="true"></div>`;
     tracks.style.setProperty("--p", String(t / D));
     // a redraw replaces the bars: keep keyboard focus on the same one
@@ -1003,11 +1019,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     box.className = n || empty ? "status muted" : "status ok";
     if (!n) return void (box.textContent = empty ? "Nothing in the scene yet" : "Ready to export");
     const b = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet warn", textContent: `${n} piece${n === 1 ? " needs" : "s need"} you` });
-    b.onclick = () => {
-      const row = root.querySelector<HTMLElement>(".needs > li[tabindex]");
-      row?.scrollIntoView({ block: "nearest" });
-      row?.focus();
-    };
+    b.onclick = openApprovals;
     box.replaceChildren(b);
   }
 

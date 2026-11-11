@@ -107,3 +107,15 @@ export async function nativeFrame(page: Page, t: number, draft = false) {
   }, { t, draft });
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
+
+/** Opens the Approvals dialog on Tweak the way the top-bar band does (the band says "Ready" when nothing waits, so tests ask directly). */
+export async function openApprovals(page: Page) {
+  await page.locator(".tweak").evaluate((el) => el.dispatchEvent(new CustomEvent("pc:approvals")));
+  await expect(page.getByRole("dialog", { name: "Approve pieces" })).toBeVisible();
+}
+
+/** Esc closes the Approvals dialog (it is modal, so the timeline is inert while it is open). */
+export async function closeApprovals(page: Page) {
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Approve pieces" })).toBeHidden();
+}

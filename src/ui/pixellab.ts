@@ -52,10 +52,12 @@ export async function busy<T>(el: HTMLElement, run: () => Promise<T>): Promise<T
   const ctl = [...el.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>("button, input, select")];
   const was = ctl.map((c) => c.disabled);
   ctl.forEach((c) => (c.disabled = true));
+  el.setAttribute("aria-busy", "true");
   try {
     return await run();
   } finally {
     ctl.forEach((c, i) => (c.disabled = was[i]));
+    el.removeAttribute("aria-busy");
   }
 }
 
@@ -66,7 +68,7 @@ export function genPlan(p: Project, t: At & { asset?: string }): { label: string
   if (!pixellabKey()) return { label: "Generate", why: NO_KEY };
   const char = t.kind === "anim" ? t.char : t.kind === "face" ? t.face : "";
   const hasRef = p.files.has(refPath(char)) || !!p.kit.chars[char]?.anims.idle?.frames.length;
-  if (t.kind === "anim" && !hasRef) return { label: "Generate", why: `${char} needs a reference first: generate it in ② Cast or upload its idle frames` };
+  if (t.kind === "anim" && !hasRef) return { label: "Generate", why: `${char} needs a reference first: generate it in Cast or upload its idle frames` };
   if (t.kind === "face" && !hasRef) return { label: "Generate", why: `${char} needs idle frames before it can get a face` };
   if (t.kind === "asset" && t.asset !== "bg") return { label: "Generate", why: t.asset === "fx" ? "Effects come from the library: press Pick from library" : "Sounds are generated with ElevenLabs" };
   return { label: "Generate" };

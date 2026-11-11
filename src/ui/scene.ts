@@ -1,3 +1,4 @@
+import { sceneWidth } from "./pixelfit";
 import { confirmPaid } from "../ai/confirm";
 import { getKeys } from "../ai/keys";
 import { draftScene } from "../ai/sceneDraft";
@@ -32,6 +33,7 @@ async function sceneScale(p: Project): Promise<SceneScale> {
 async function peek(c: HTMLCanvasElement, p: Project): Promise<void> {
   const { W, H } = p.canvas;
   c.width = W; c.height = H;
+  c.style.width = `${sceneWidth(W, c.parentElement!.clientWidth)}px`; // whole-number scale of the scene pixels (a reduction when wider than the box)
   c.parentElement!.querySelector("figcaption")!.textContent = `${W}×${H}, exported at ${W * p.canvas.exportScale}×${H * p.canvas.exportScale}`;
   const g = c.getContext("2d")!;
   g.fillStyle = "#16171b"; g.fillRect(0, 0, W, H);
@@ -56,9 +58,9 @@ async function peek(c: HTMLCanvasElement, p: Project): Promise<void> {
 
 export function renderScene(root: HTMLElement, p: Project, changed: () => void, go: (n: Step) => void): void {
   root.innerHTML = `<section class="empty-page scene-page"><h1>Scene</h1>
-    <figure class="scene-peek"><canvas class="px"></canvas><figcaption class="small"></figcaption></figure>
+    <figure class="scene-peek" data-cat="place"><span class="card-band" aria-hidden="true">Place · scene size</span><canvas class="px"></canvas><figcaption class="small"></figcaption>
+    <label class="scene-size">Scene size <select data-act="size"></select><span class="small"></span></label></figure>
     <label class="scene-text">What happens in your cutscene? <textarea rows="8" data-testid="scene-text" placeholder="Three heroes walk into a cave. A ghost appears and they freeze..."></textarea></label>
-    <label class="scene-size">Scene size <select data-act="size"></select><span class="small"></span></label>
     <div class="row"><button class="btn primary" type="button" data-act="draft">Draft it</button>
     <button class="btn" type="button" data-act="own">Write it myself</button></div>
     <p class="hint" data-testid="scene-hint"></p>
@@ -78,7 +80,7 @@ export function renderScene(root: HTMLElement, p: Project, changed: () => void, 
   if (locked) { // the way back: the size frees up once the stage is empty again
     const open = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: "Open Tweak" });
     open.onclick = () => go(3);
-    const why = Object.assign(document.createElement("p"), { className: "small unlock", textContent: "To change it, remove everyone and every effect in ③ Tweak. " });
+    const why = Object.assign(document.createElement("p"), { className: "small unlock", textContent: "To change it, remove everyone and every effect in Tweak. " });
     why.append(open);
     size.closest("label")!.after(why);
   }
@@ -111,8 +113,8 @@ export function renderScene(root: HTMLElement, p: Project, changed: () => void, 
   };
   sync();
   hint.textContent = hasKey
-    ? "The draft also names the characters your scene needs; the ones you don't have yet wait for you in ② Cast."
-    : "No AI key? Press Write it myself and build the scene by hand in ③ Tweak. (Draft it needs an AI key in Settings.)";
+    ? "The draft also names the characters your scene needs; the ones you don't have yet wait for you in Cast."
+    : "No AI key? Press Write it myself and build the scene by hand in Tweak. (Draft it needs an AI key in Settings.)";
 
   const starter = root.querySelector<HTMLElement>(".starter")!;
   starter.hidden = readyChars(p.kit, (f) => p.files.has(f)).length > 0;
@@ -129,7 +131,7 @@ export function renderScene(root: HTMLElement, p: Project, changed: () => void, 
       if (added.length && at >= 0 && !size.disabled && setCanvas(p, CANVAS_SIZES[at])) size.value = String(at);
       changed();
       starter.hidden = true;
-      toast(added.length ? `Added ${added.join(", ")}. Find them on the left in ③ Tweak.` : "The starter pack is already in this project.");
+      toast(added.length ? `Added ${added.join(", ")}. Find them on the left in Tweak.` : "The starter pack is already in this project.");
     } catch {
       toast("Could not load the starter pack. Check your connection and try again.", "error");
       starterBtn.disabled = false;

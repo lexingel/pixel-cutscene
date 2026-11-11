@@ -39,7 +39,7 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
   const tl = p.tl;
   if (!tl || !tl.shots.length) {
     root.innerHTML = `<section class="empty-page"><h1>Export</h1>
-      <p class="hint">There is no scene to export yet. Draft one in ① Scene or build it in ③ Tweak.</p>
+      <p class="hint">There is no scene to export yet. Draft one in Scene or build it in Tweak.</p>
       <button class="btn primary" type="button">Go to Tweak</button></section>`;
     root.querySelector("button")!.onclick = () => go(3);
     return;
@@ -154,7 +154,7 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
   $("[data-testid=draft-row]").hidden = !missing.length; // nothing to stand in for: no draft to offer
   if (missing.length) {
     $(".needs-list").hidden = false;
-    $(".needs-list p").textContent = `The full export waits for ${missing.length} piece${missing.length > 1 ? "s" : ""} (approve them in ③ Tweak), or tick Draft:`;
+    $(".needs-list p").textContent = `The full export waits for ${missing.length} piece${missing.length > 1 ? "s" : ""} (approve them in Tweak), or tick Draft:`;
     $(".needs-list ul").append(...missing.map((m) => Object.assign(document.createElement("li"), { textContent: `${m.what}: ${m.why}` })));
   }
 
@@ -199,7 +199,7 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
     } catch (e) {
       const err = e as Error;
       alert.textContent = err.name === "AbortError" ? "Export cancelled. Nothing was downloaded."
-        : e instanceof MissingError ? `${err.message} Approve them in ③ Tweak, or tick Draft.`
+        : e instanceof MissingError ? `${err.message} Approve them in Tweak, or tick Draft.`
         : `The export failed: ${err.message}`;
     } finally {
       removeEventListener("beforeunload", blockWhile);

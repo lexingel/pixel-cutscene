@@ -32,9 +32,16 @@ export async function loadProject(id: string): Promise<Project | null> {
   return r ? { ...r.meta, cast: r.meta.cast ?? {}, files: new Map(r.files) } : null; // cast: projects saved before it existed
 }
 
-export async function listProjects(): Promise<{ id: string; name: string; updated: number }[]> {
+/** `thumb` is the first shot's background, for the Home card. */
+export async function listProjects(): Promise<{ id: string; name: string; updated: number; thumb?: Blob }[]> {
   const all = (await tx("readonly", (s) => s.getAll())) as Rec[];
-  return all.map(({ id, name, updated }) => ({ id, name, updated })).sort((a, b) => b.updated - a.updated);
+  return all
+    .map(({ id, name, updated, meta, files }) => {
+      const bg = meta.tl?.shots[0]?.bg; // an asset id, or (older zips) the file path itself
+      const path = bg && (meta.kit?.assets?.[bg]?.path ?? bg);
+      return { id, name, updated, thumb: path ? files.find(([k]) => k === path)?.[1] : undefined };
+    })
+    .sort((a, b) => b.updated - a.updated);
 }
 
 export async function deleteProject(id: string): Promise<void> {

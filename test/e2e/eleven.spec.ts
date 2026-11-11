@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { closeApprovals, openApprovals } from "./fixture";
 // @ts-ignore node types are not part of the browser build
 import { readFileSync } from "node:fs";
 
@@ -49,26 +50,29 @@ async function open(page: Page, speaker?: string) {
     input.dispatchEvent(new Event("change"));
   }, speaker);
   await expect(page.getByLabel("Project name")).toHaveValue("Voice fixture");
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
 }
 
 test("elevenlabs: pick a voice, generate a line and a sound, approve", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("pcs.keys", JSON.stringify({ elevenlabs: "test-key" })));
   const seen = await stubEleven(page);
   await open(page);
+  await openApprovals(page);
   const needs = page.getByTestId("needs");
   const vo = needs.locator("li", { hasText: "vo_close" });
   await expect(vo.getByRole("button", { name: "Generate" })).toBeDisabled();
 
+  await closeApprovals(page);
   await page.locator("[data-id=vo1]").click();
   await page.getByLabel("Speaker").selectOption("hero");
   const voice = page.getByLabel("voice for hero");
   await expect(voice.locator("option", { hasText: "Aria" })).toHaveCount(1);
   await voice.selectOption("v_aria_01");
+  await openApprovals(page);
   await expect(vo.getByRole("button", { name: "Generate" })).toBeEnabled();
 
   await vo.getByRole("button", { name: "Generate" }).click();
-  const dialog = page.locator("dialog[open]");
+  const dialog = page.locator("dialog[open]:not(.approvals)");
   await expect(dialog).toContainText("ElevenLabs: Generate voice line vo close");
   await expect(dialog).toContainText("11 characters");
   await dialog.getByRole("button", { name: "Run it" }).click();
@@ -80,8 +84,8 @@ test("elevenlabs: pick a voice, generate a line and a sound, approve", async ({ 
 
   const sfx = needs.locator("li", { hasText: "sfx_rumble" });
   await sfx.getByRole("button", { name: "Generate" }).click();
-  await expect(page.locator("dialog[open]")).toContainText("2 seconds");
-  await page.locator("dialog[open]").getByRole("button", { name: "Run it" }).click();
+  await expect(page.locator("dialog[open]:not(.approvals)")).toContainText("2 seconds");
+  await page.locator("dialog[open]:not(.approvals)").getByRole("button", { name: "Run it" }).click();
   await expect(needs.locator("li", { hasText: "sfx_rumble" }).locator("audio")).toHaveCount(1);
   await page.screenshot({ path: "test-results/elevenlabs-needs-1280x800.png" });
 
@@ -93,11 +97,13 @@ test("elevenlabs: pick a voice, generate a line and a sound, approve", async ({ 
 
 test("elevenlabs: without a key Generate is off with a hint", async ({ page }) => {
   await open(page);
+  await openApprovals(page);
   const sfx = page.getByTestId("needs").locator("li", { hasText: "sfx_rumble" });
   const gen = sfx.getByRole("button", { name: "Generate" });
   await expect(gen).toBeDisabled();
   await expect(gen).toHaveAttribute("title", "Add an ElevenLabs key in Settings to generate.");
   // without a key the voice id is typed, not picked
+  await closeApprovals(page);
   await page.locator("[data-id=vo1]").click();
   await page.getByLabel("Speaker").selectOption("hero");
   await page.getByLabel("voice for hero").fill("my_voice_id");
@@ -110,8 +116,10 @@ test("elevenlabs: a missing speaker is flagged and a failed voice list falls bac
   await page.route("https://api.elevenlabs.io/**", (route) =>
     route.fulfill({ status: route.request().method() === "OPTIONS" ? 204 : 500, headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "xi-api-key, content-type" }, body: "{}" }));
   await open(page, "ghost");
+  await openApprovals(page);
   const vo = page.getByTestId("needs").locator("li", { hasText: "vo_close" });
   await expect(vo.getByRole("button", { name: "Generate" })).toHaveAttribute("title", "ghost is not in the cast. Pick a speaker in the inspector.");
+  await closeApprovals(page);
   await page.locator("[data-id=vo1]").click();
   await expect(page.getByLabel("Speaker").locator("option", { hasText: "ghost (missing)" })).toHaveCount(1);
   await page.getByLabel("Speaker").selectOption("hero");
@@ -125,7 +133,7 @@ test("elevenlabs: a sound is generated from its own bar's inspector", async ({ p
   await open(page);
   await page.locator("[data-id=boom]").click();
   await page.locator(".inspector").getByRole("button", { name: "Generate with ElevenLabs" }).click();
-  await expect(page.locator("dialog[open]")).toContainText("ElevenLabs: Generate sound sfx rumble");
-  await page.locator("dialog[open]").getByRole("button", { name: "Run it" }).click();
+  await expect(page.locator("dialog[open]:not(.approvals)")).toContainText("ElevenLabs: Generate sound sfx rumble");
+  await page.locator("dialog[open]:not(.approvals)").getByRole("button", { name: "Run it" }).click();
   await expect(page.getByTestId("needs").locator("li", { hasText: "sfx_rumble" }).locator("audio")).toHaveCount(1);
 });

@@ -2,6 +2,7 @@ import { baseName, freePath, sortFrames } from "../core/cast";
 import { animStatus, type Kit } from "../core/kit";
 import { NEEDS, missingReport } from "../core/missing";
 import type { Project } from "../core/project";
+import { CAT_LABEL, type Cat } from "./category";
 import { labelOf } from "../core/labels";
 import { moveLabel } from "../core/moves";
 import { ACTIONS } from "../core/timeline";
@@ -50,6 +51,10 @@ export function targetOf(tl: Timeline, r: Row): Target | null {
       return null;
   }
 }
+
+// The category band a card wears; a row with no readable target is filed under its kit kind's nearest guess.
+const catOfTarget = (t: Target | null): Cat =>
+  !t || t.kind !== "asset" ? "char" : t.asset === "fx" ? "fx" : t.asset === "bg" ? "place" : "sound";
 
 const ext = (name: string) => name.match(/\.[A-Za-z0-9]+$/)?.[0].toLowerCase() ?? "";
 const isAudio = (t: Target) => t.kind === "asset" && GEN_AUDIO.includes(t.asset);
@@ -149,7 +154,9 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
     const t = targetOf(tl, r);
     const li = document.createElement("li");
     li.tabIndex = -1; // the Tweak status links here
-    li.innerHTML = `<div class="need-head"><strong></strong><span class="tag"></span></div><span class="small used"></span><div class="row wrap acts"></div>`;
+    li.dataset.cat = catOfTarget(t);
+    li.innerHTML = `<div class="card-band"></div><div class="need-head"><strong></strong><span class="tag"></span></div><span class="small used"></span><div class="row wrap acts"></div>`;
+    li.querySelector(".card-band")!.textContent = CAT_LABEL[li.dataset.cat as Cat];
     li.querySelector("strong")!.textContent = words(r.what);
     const tag = li.querySelector<HTMLElement>(".tag")!;
     tag.textContent = r.why === "missing" ? "missing" : "to approve";

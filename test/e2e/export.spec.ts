@@ -27,7 +27,7 @@ const TOL = 8;
 test("export full: 1080p30 MP4 with sound, frame 60 is renderFrame(2.0) at x2 with no blur", async ({ page }) => {
   test.setTimeout(180_000);
   await openFixture(page, { extraAnim: "walk", big: true, sound: true });
-  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   await expect(page.getByTestId("format-note")).toContainText("MP4");
   const t0 = Date.now();
   const dl = page.waitForEvent("download", { timeout: 120_000 });
@@ -78,7 +78,7 @@ test("webm_fallback: without H.264 the download is WebM and the note says so", a
     VideoEncoder.isConfigSupported = async (c) => (c.codec.startsWith("avc") ? { supported: false, config: c } : orig(c));
   });
   await openFixture(page, { extraAnim: "walk", sound: true });
-  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   await expect(page.getByTestId("format-note")).toContainText("Your browser can't make MP4, so this is WebM");
   expect(await exportAndSave(page, "Export video", "fallback.webm")).toBe("Tweak fixture.webm");
 
@@ -93,7 +93,7 @@ test("webm_fallback: without H.264 the download is WebM and the note says so", a
 test("export_refused_with_missing: an unapproved piece blocks the full export; a draft goes through with the watermark", async ({ page }) => {
   test.setTimeout(120_000);
   await openFixture(page, { extraAnim: "walk", unapproved: true });
-  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   let downloads = 0;
   page.on("download", () => downloads++);
   await page.getByRole("button", { name: "Export video" }).click();
@@ -117,7 +117,7 @@ test("export_refused_with_missing: an unapproved piece blocks the full export; a
 test("store loop: a range as native-size WebM and as a 15 fps GIF; cancel never downloads", async ({ page }) => {
   test.setTimeout(120_000);
   await openFixture(page, { extraAnim: "walk" });
-  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   await page.getByLabel("From (s)").fill("1");
   await page.getByLabel("To (s)").fill("2");
   await page.getByLabel("Loop format").selectOption("webm");
@@ -155,7 +155,7 @@ test("export vertical share: a 1080x1920 slice for phones, named _vertical", asy
     VideoEncoder.isConfigSupported = (c: VideoEncoderConfig) => ((window as any).asked.push(`${c.width}x${c.height}`), ask(c));
   });
   await openFixture(page, { extraAnim: "walk", big: true, sound: true });
-  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   await page.getByLabel("Shape").selectOption("vertical");
   await expect(page.getByTestId("full-size")).toContainText("1080×1920");
   await expect(page.getByLabel("Slice centre x")).toBeVisible();
@@ -170,7 +170,7 @@ test("export vertical share: a 1080x1920 slice for phones, named _vertical", asy
 test("export square: a 1080x1080 slice for posts, named _square", async ({ page }) => {
   test.setTimeout(180_000);
   await openFixture(page, { extraAnim: "walk", big: true, sound: true });
-  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   await page.getByLabel("Shape").selectOption("square");
   await expect(page.getByTestId("full-size")).toContainText("1080×1080");
   await page.getByLabel("Shape").selectOption("wide");
@@ -185,7 +185,7 @@ test("export square: a 1080x1080 slice for posts, named _square", async ({ page 
 test("a square draft keeps its DRAFT mark (stamped after the slice is cut)", async ({ page }) => {
   test.setTimeout(180_000);
   await openFixture(page, { extraAnim: "walk", unapproved: true });
-  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   await page.getByLabel(/Draft/).check();
   await page.getByLabel("Shape").selectOption("square");
   expect(await exportAndSave(page, "Export video", "sqdraft.mp4")).toBe("Tweak fixture_square_DRAFT.mp4");
@@ -203,7 +203,7 @@ test("store loops are made at Best quality, whatever the Quality select says", a
     VideoEncoder.prototype.configure = function (c: VideoEncoderConfig) { (window as any).rates.push([c.width, c.bitrate]); return conf.call(this, c); };
   });
   await openFixture(page, { extraAnim: "walk" });
-  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   await expect(page.getByLabel("Quality")).toHaveValue("share");
   await page.getByLabel("From (s)").fill("1");
   await page.getByLabel("To (s)").fill("2");
@@ -216,7 +216,7 @@ test("store loops are made at Best quality, whatever the Quality select says", a
 test("a ready scene says so, hides Draft, shows a still, and names the saved file after an export", async ({ page }) => {
   test.setTimeout(120_000);
   await openFixture(page, { extraAnim: "walk" });
-  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   await expect(page.getByTestId("ready")).toBeVisible();
   await expect(page.getByTestId("draft-row")).toBeHidden();
   await expect(page.getByTestId("poster-note")).toContainText("at 0.0 s");
@@ -233,14 +233,14 @@ test("a ready scene says so, hides Draft, shows a still, and names the saved fil
 
 test("a scene with missing pieces offers Draft and no ready line", async ({ page }) => {
   await openFixture(page, { extraAnim: "walk", unapproved: true });
-  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   await expect(page.getByTestId("draft-row")).toBeVisible();
   await expect(page.getByTestId("ready")).toBeHidden();
 });
 
 test("Project files: the .zip and project.json download from the export page", async ({ page }) => {
   await openFixture(page, { extraAnim: "walk" });
-  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   expect(await exportAndSave(page, "Download project (.zip)", "proj.zip")).toBe("Tweak fixture.zip");
   expect(await exportAndSave(page, "project.json only", "proj.json")).toBe("Tweak fixture.json");
   const j = JSON.parse(text(readFileSync(`${OUT}/proj.json`)));

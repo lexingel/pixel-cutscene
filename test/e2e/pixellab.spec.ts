@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 // @ts-ignore node types are not part of the browser build
 import { readFileSync } from "node:fs";
-import { openFixture } from "./fixture";
+import { openFixture, openApprovals } from "./fixture";
 
 // Every PixelLab call is answered from the hand-made fixtures; no real host is hit.
 const fx = (n: string) => readFileSync(`test/fixtures/pixellab/${n}.json`, "utf8") as string;
@@ -33,7 +33,7 @@ test("pixellab: candidates, approve, idle, approve", async ({ page }) => {
   const seen = await stubPixellab(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Start a new cutscene" }).click();
-  await page.getByRole("button", { name: "② Cast" }).click();
+  await page.getByRole("button", { name: "Cast", exact: true }).click();
   await page.getByRole("button", { name: "Generate with PixelLab" }).click();
   await page.getByLabel("Character name").fill("knight");
   await page.getByLabel("Description", { exact: true }).fill("a knight in dented armour");
@@ -69,7 +69,7 @@ test("pixellab: candidates, approve, idle, approve", async ({ page }) => {
 test("pixellab: without a key the door stays shut", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Start a new cutscene" }).click();
-  await page.getByRole("button", { name: "② Cast" }).click();
+  await page.getByRole("button", { name: "Cast", exact: true }).click();
   await expect(page.getByRole("button", { name: "Generate with PixelLab" })).toBeDisabled();
   await expect(page.getByText("Add a PixelLab key in Settings to generate.")).toBeVisible();
 });
@@ -104,7 +104,8 @@ test("pixellab: a row is locked while its Redo runs", async ({ page }) => {
     input.dispatchEvent(new Event("change"));
   });
   await expect(page.getByLabel("Project name")).toHaveValue("Redo fixture");
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
+  await openApprovals(page);
   const row = page.getByTestId("needs").locator("li", { hasText: "hero walk" });
   await row.getByRole("button", { name: "Redo" }).click();
   await page.locator("dialog[open]").getByRole("button", { name: "Run it" }).click();
@@ -128,7 +129,7 @@ test("pixellab: Settings shows the balance", async ({ page }) => {
 test("settings: Enter in a key field saves, it does not cancel", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Start a new cutscene" }).click();
-  await page.getByRole("button", { name: "② Cast" }).click();
+  await page.getByRole("button", { name: "Cast", exact: true }).click();
   await page.getByRole("button", { name: "Settings" }).click();
   const field = page.locator("dialog input[name=pixellab]");
   await field.fill("test-key");
@@ -165,7 +166,7 @@ async function genForm(page: Page) {
   page.on("request", (r) => r.method() === "POST" && r.url().endsWith("/create-image-pixen") && sizes.push(r.postDataJSON().image_size));
   await page.goto("/");
   await page.getByRole("button", { name: "Start a new cutscene" }).click();
-  await page.getByRole("button", { name: "② Cast" }).click();
+  await page.getByRole("button", { name: "Cast", exact: true }).click();
   await page.getByRole("button", { name: "Generate with PixelLab" }).click();
   await page.getByLabel("Character name").fill("wyrm");
   await page.getByLabel("Description", { exact: true }).fill("a vast wyrm");
@@ -232,7 +233,8 @@ test("pixellab: the attack prompt can be edited before paying", async ({ page })
     input.dispatchEvent(new Event("change"));
   });
   await expect(page.getByLabel("Project name")).toHaveValue("Attack fixture");
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
+  await openApprovals(page);
   await page.getByTestId("needs").locator("li", { hasText: "hero attack" }).getByRole("button", { name: "Generate", exact: true }).click();
   const box = page.locator("dialog[open]").getByLabel("Motion prompt");
   await expect(box).toHaveValue(/wind-up, strike, recover/);
@@ -246,9 +248,10 @@ test("pixellab: Attack from the + menu on a character that has none leads to Gen
   await page.addInitScript(() => localStorage.setItem("pcs.keys", JSON.stringify({ pixellab: "test-key" })));
   await stubPixellab(page);
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.getByRole("button", { name: "Add a move for hero" }).click();
   await page.getByRole("menuitem", { name: "Attack" }).click();
+  await openApprovals(page);
   const row = page.getByTestId("needs").locator("li", { hasText: "hero attack" });
   await expect(row.getByRole("button", { name: "Generate", exact: true })).toBeEnabled();
   await row.getByRole("button", { name: "Generate", exact: true }).click();
@@ -259,7 +262,7 @@ test("pixellab: Attack from the + menu on a character that has none leads to Gen
 
 test("pixellab: Breathe fire from the + menu before it exists adds its flame", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.getByRole("button", { name: "Add a move for hero" }).click();
   await page.getByRole("menuitem", { name: "Breathe fire" }).click();
   await expect(page.locator(".clip[title=\"hero · Breathe fire\"]")).toBeVisible();
@@ -292,9 +295,10 @@ test("pixellab: Generate all makes every missing move behind one confirm with th
     input.dispatchEvent(new Event("change"));
   });
   await expect(page.getByLabel("Project name")).toHaveValue("All fixture");
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
+  await openApprovals(page);
   await page.getByTestId("gen-all").click();
-  const dialog = page.locator("dialog[open]");
+  const dialog = page.locator("dialog[open]:not(.approvals)");
   await expect(dialog).toContainText("PixelLab: Generate all (2 pieces)");
   await expect(dialog).toContainText("about 2 generations");
   await dialog.getByRole("button", { name: "Run it" }).click();

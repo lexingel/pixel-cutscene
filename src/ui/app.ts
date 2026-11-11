@@ -9,6 +9,9 @@ import { confirmDialog, toast } from "./dialogs";
 import { openSettings } from "./settings";
 import { downloadProject, renderExport } from "./exportStep";
 import { stepBar, type Step } from "./steps";
+import { nextBand } from "./nextBand";
+import "./pixelfit";
+import { getTheme, nextTheme, setTheme } from "./theme";
 
 // Route lives in the hash (#/p/<id>) so a reload reopens the same project.
 const projectIdFromHash = () => location.hash.match(/^#\/p\/(.+)$/)?.[1] ?? null;
@@ -22,6 +25,21 @@ function ago(ms: number): string {
   if (s > -7 * 86400) return rtf.format(Math.round(s / 86400), "day");
   return new Date(ms).toLocaleDateString();
 }
+
+/** Cycles dark/light from whatever is showing now; the choice is stored by setTheme. */
+function themeButton(): HTMLButtonElement {
+  const b = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet theme", textContent: "◐", title: "Switch between dark and light" });
+  b.setAttribute("aria-label", "Theme");
+  const dark = () => (getTheme() === "auto" ? matchMedia("(prefers-color-scheme: dark)").matches : getTheme() === "dark");
+  const sync = () => b.setAttribute("aria-pressed", String(dark()));
+  sync();
+  b.onclick = () => (setTheme(nextTheme(getTheme(), matchMedia("(prefers-color-scheme: dark)").matches)), sync());
+  return b;
+}
+
+// Object URLs for the Home thumbnails; freed when Home is drawn again or a project opens.
+let thumbUrls: string[] = [];
+const revokeThumbs = () => (thumbUrls.forEach((u) => URL.revokeObjectURL(u)), (thumbUrls = []));
 
 const ZIP_TIP = "A .zip of this project: project.json (timeline, cast, settings) and every image and sound. Open it again from the home page.";
 
@@ -83,18 +101,19 @@ export function mountApp(root: HTMLElement): void {
     const list = await listProjects();
     root.innerHTML = `
     <canvas class="home-fx" aria-hidden="true"></canvas>
-    <header class="bar"><span class="brand">Pixel Cutscene</span></header>
+    <header class="bar"><span class="brand"><span class="mark" aria-hidden="true"></span>Pixel Cutscene</span><span class="grow"></span></header>
     <main class="home">
       <h1>Make a pixel-art cutscene</h1>
       <p class="hint">Describe a scene, add your character sprites, then export a pixel-perfect video. No account needed, and AI drafting is optional.</p>
-      <div class="row wrap start-row">
-        <button class="btn primary" type="button" data-act="new">Start a new cutscene</button>
-        <button class="btn" type="button" data-act="sample">Open the sample</button>
-        <label class="btn" title="Open a project you downloaded as a .zip">Open a project (.zip)<input type="file" accept=".zip,application/zip" class="pick" /></label>
-      </div>
+      <ul class="pgrid start-cards">
+        <li><button class="pcard start" type="button" data-act="new" aria-label="Start a new cutscene"><span class="start-plus" aria-hidden="true">+</span><strong>New cutscene</strong><span class="small">Describe a scene and begin</span></button></li>
+        <li><button class="pcard start" type="button" data-act="sample" aria-label="Open the sample"><span class="start-plus" aria-hidden="true">★</span><strong>Starter pack</strong><span class="small">A finished sample to learn from</span></button></li>
+        <li><label class="pcard start" title="Open a project you downloaded as a .zip"><span class="start-plus" aria-hidden="true">↑</span><strong>Open a .zip</strong><span class="small">A project you downloaded</span><input type="file" accept=".zip,application/zip" class="pick" aria-label="Open a project (.zip)" /></label></li>
+      </ul>
       <h2 class="projects-head">Your projects</h2>
-      <ul class="projects"></ul>
+      <ul class="pgrid projects"></ul>
     </main>`;
+    root.querySelector(".bar")!.append(themeButton());
     startHomeFx(root.querySelector(".home-fx")!, root.querySelector(".home")!);
     root.querySelector<HTMLButtonElement>("[data-act=new]")!.onclick = async () => {
       const p = newProject("Untitled cutscene");
@@ -120,13 +139,21 @@ export function mountApp(root: HTMLElement): void {
       zipInput.value = "";
       if (f) await openZip(f);
     };
-    if (!list.length) root.querySelector(".projects")!.innerHTML = `<li class="small muted">Nothing yet. Projects you make are kept in this browser.</li>`;
+    revokeThumbs();
+    if (!list.length) root.querySelector(".projects")!.innerHTML = `<li class="small muted none">Nothing yet. Projects you make are kept in this browser.</li>`;
     root.querySelector(".projects")!.append(
-      ...list.map(({ id, name, updated }) => {
+      ...list.map(({ id, name, updated, thumb }) => {
         const li = document.createElement("li");
-        li.innerHTML = `<a class="proj"><strong></strong><span class="small"></span></a><button class="btn" type="button" title="${ZIP_TIP}">Download project</button><button class="btn quiet" type="button">Duplicate</button><button class="btn quiet danger" type="button">Delete</button>`;
+        li.className = "pcard";
+        li.innerHTML = `<a class="proj"><span class="pthumb"></span><strong></strong><span class="small"></span></a><span class="pcard-acts"><button class="btn" type="button" title="${ZIP_TIP}">Download project</button><button class="btn quiet" type="button">Duplicate</button><button class="btn quiet danger" type="button">Delete</button></span>`;
         const a = li.querySelector("a")!;
         a.href = `#/p/${id}`;
+        const box = a.querySelector<HTMLElement>(".pthumb")!;
+        if (thumb) {
+          const img = Object.assign(new Image(), { alt: "", src: URL.createObjectURL(thumb) });
+          thumbUrls.push(img.src);
+          box.append(img);
+        } else box.classList.add("empty");
         a.querySelector("strong")!.textContent = name;
         const when = a.querySelector<HTMLElement>(".small")!;
         when.textContent = `Edited ${ago(updated)}`;
@@ -156,17 +183,21 @@ export function mountApp(root: HTMLElement): void {
   }
 
   function showProject(p: Project) {
+    revokeThumbs();
     root.innerHTML = `
     <header class="bar">
-      <a class="brand" href="#">Pixel Cutscene</a>
+      <a class="brand" href="#"><span class="mark" aria-hidden="true"></span>Pixel Cutscene</a>
       <input class="name" aria-label="Project name" />
       <span class="grow"></span>
+      <span class="band-slot" aria-live="polite"></span>
       <span class="save small muted" aria-live="polite" data-testid="save-status">Saved</span>
+      <span class="theme-slot"></span>
       <button class="btn" type="button" data-act="settings">Settings</button>
       <button class="btn" type="button" data-act="zip" title="${ZIP_TIP}">Download project</button>
     </header>
     <main class="page"></main>`;
     status = root.querySelector(".save");
+    root.querySelector(".theme-slot")!.replaceWith(themeButton());
     const name = root.querySelector<HTMLInputElement>(".name")!;
     name.value = p.name;
     name.oninput = () => {
@@ -181,12 +212,25 @@ export function mountApp(root: HTMLElement): void {
       save();
       showStep();
     };
+    // Tweak (step 3) first if needed, then its Approvals dialog opens.
+    const openNeeds = () => {
+      if (p.step !== 3) go(3);
+      page.querySelector(".tweak")?.dispatchEvent(new CustomEvent("pc:approvals"));
+    };
+    const refreshBand = () => {
+      const slot = root.querySelector(".band-slot")!;
+      const b = slot.querySelector<HTMLButtonElement>(".next-band") ?? undefined;
+      const nb = nextBand(p, openNeeds, () => go(4), b);
+      if (!b) slot.append(nb);
+    };
+    const edited = () => (changed(), refreshBand());
     const showStep = () => {
       root.querySelector(".steps")?.remove();
       name.after(stepBar(p.step, go));
-      if (p.step === 1) renderCast(page, p, changed, go);
-      else if (p.step === 2) renderScene(page, p, changed, go);
-      else if (p.step === 3) renderTweak(page, p, changed, go);
+      refreshBand();
+      if (p.step === 1) renderCast(page, p, edited, go);
+      else if (p.step === 2) renderScene(page, p, edited, go);
+      else if (p.step === 3) renderTweak(page, p, edited, go);
       else renderExport(page, p, go);
     };
     showStep();

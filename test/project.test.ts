@@ -124,3 +124,27 @@ test("the_canvas_changes_only_before_anyone_is_placed", () => {
   expect(setCanvas(p, CANVAS_SIZES[2])).toBe(false);
   expect(p.canvas.W).toBe(320);
 });
+
+test("listProjects returns the first shot background as thumb", async () => {
+  const s = await import("../src/core/store");
+  const a = newProject("with bg");
+  a.tl = parseTimeline(miniText).data;
+  a.tl!.shots[0].bg = "bg/a.png";
+  a.files.set("bg/a.png", new Blob([new Uint8Array([1, 2])]));
+  const b = newProject("no tl");
+  const c = newProject("asset id");
+  c.tl = parseTimeline(miniText).data;
+  c.tl!.shots[0].bg = "dusk";
+  c.kit.assets.dusk = { approved: true, source: "user", kind: "bg", path: "bg/dusk.png" };
+  c.files.set("bg/dusk.png", new Blob([new Uint8Array([3])]));
+  await s.saveProject(c);
+  await s.saveProject(a);
+  await s.saveProject(b);
+  const l = await s.listProjects();
+  expect(l.find((x) => x.id === a.id)!.thumb).toBeInstanceOf(Blob);
+  expect(l.find((x) => x.id === b.id)!.thumb).toBeUndefined();
+  expect(l.find((x) => x.id === c.id)!.thumb).toBeInstanceOf(Blob);
+  await s.deleteProject(c.id);
+  await s.deleteProject(a.id);
+  await s.deleteProject(b.id);
+});

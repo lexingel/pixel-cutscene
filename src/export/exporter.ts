@@ -80,7 +80,7 @@ function indexed(px: Uint8ClampedArray) {
 /** Renders the scene offline, frame by frame, and encodes it. Resolves only with a complete file. */
 export async function exportVideo(p: Project, opts: ExportOpts, codec?: Container): Promise<Blob> {
   const tl = p.tl;
-  if (!tl || !tl.shots.length) throw new Error("There is no scene to export yet. Build one in ③ Tweak.");
+  if (!tl || !tl.shots.length) throw new Error("There is no scene to export yet. Build one in Tweak.");
   const has = (path: string) => p.files.has(path);
   if (!opts.draft) {
     const missing = missingReport(tl, p.kit, false, has);

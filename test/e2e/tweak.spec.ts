@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { openFixture } from "./fixture";
+import { closeApprovals, openApprovals, openFixture } from "./fixture";
 
 test("tweak: preview matches renderFrame, drag moves an action", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   const canvas = page.getByTestId("preview");
   await expect(canvas).toHaveAttribute("data-ready", "1");
 
@@ -62,7 +62,7 @@ test("tweak: preview matches renderFrame, drag moves an action", async ({ page }
 test("tweak without a timeline offers a way forward", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Start a new cutscene" }).click();
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.getByRole("button", { name: "Start an empty timeline" }).click();
   await expect(page.getByTestId("preview")).toHaveAttribute("data-ready", "1");
   await expect(page.getByTestId("needs")).toContainText("Nothing missing");
@@ -77,7 +77,7 @@ test("tweak without a timeline offers a way forward", async ({ page }) => {
 test("names from a project zip are shown as text, never as markup", async ({ page }) => {
   const evil = `<img src=x onerror="window.__pwned=1">`;
   await openFixture(page, evil);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   const swap = page.getByLabel(/Change action/);
   await expect(swap.locator("option", { hasText: `Play: ${evil}` })).toHaveCount(1);
   await expect(page.locator(".side img")).toHaveCount(0);
@@ -86,7 +86,7 @@ test("names from a project zip are shown as text, never as markup", async ({ pag
 
 test("framing: a camera pan past the background is flagged, and Fill the frame covers it", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await expect(page.getByTestId("preview")).toHaveAttribute("data-ready", "1");
   const box = page.getByTestId("framing");
   await expect(box).toBeHidden(); // the 320x180 field covers the 320x180 canvas
@@ -104,7 +104,7 @@ test("framing: a camera pan past the background is flagged, and Fill the frame c
 
 test("changing an action to Walk just works", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.getByRole("button", { name: "Add a move for hero" }).click();
   await page.getByRole("menuitem", { name: "Look around" }).click();
   const act = page.getByLabel("Move", { exact: true });
@@ -118,7 +118,7 @@ test("changing an action to Walk just works", async ({ page }) => {
 
 test("added at the playhead", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
   await expect(page.getByTestId("timecode")).toContainText("2.00");
@@ -131,7 +131,7 @@ test("added at the playhead", async ({ page }) => {
 
 test("row menu adds Turn to dust at the playhead", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
   await page.getByRole("button", { name: "Add a move for hero" }).click();
@@ -144,7 +144,7 @@ test("row menu adds Turn to dust at the playhead", async ({ page }) => {
 
 test("Play items list only approved anims, never idle, walk or hurt", async ({ page }) => {
   await openFixture(page, { breathe: true, extraAnim: "hurt", unapprovedAnim: "cheer" });
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.getByRole("button", { name: "Add a move for hero" }).click();
   const names = await page.getByRole("menuitem").allTextContents();
   expect(names).toEqual(["Walk to…", "Move to…", "Look around", "Startle", "Hurt", "Turn to dust", "Say…", "Attack", "Breathe fire"]);
@@ -154,7 +154,7 @@ test("Play items list only approved anims, never idle, walk or hurt", async ({ p
 
 test("Escape closes the row menu", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.getByRole("button", { name: "Add a move for hero" }).click();
   await expect(page.getByRole("menu")).toBeVisible();
   await page.keyboard.press("Escape");
@@ -163,7 +163,7 @@ test("Escape closes the row menu", async ({ page }) => {
 
 test("Breathe fire brings its flame", async ({ page }) => {
   await openFixture(page, { breathe: true, extraAnim: "walk" });
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.keyboard.press("ArrowRight");
   await expect(page.getByTestId("timecode")).toContainText("1.00");
   await page.getByRole("button", { name: "Add a move for hero" }).click();
@@ -174,8 +174,10 @@ test("Breathe fire brings its flame", async ({ page }) => {
   await expect(page.getByLabel("Start (s)", { exact: true })).toHaveValue("1.333");
   expect(Number(await page.getByLabel("X", { exact: true }).inputValue())).toBeGreaterThan(80); // the facing (right) edge of a hero standing at x 80
   expect(Number(await page.getByLabel("Y", { exact: true }).inputValue())).toBeLessThan(150); // above the feet
-  await expect(page.getByText("Ready to export", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("status")).toHaveText("Ready to export");
+  await openApprovals(page);
   await expect(page.getByText(/Nothing missing/)).toBeVisible();
+  await closeApprovals(page);
   await page.getByRole("button", { name: "Undo" }).click(); // one step takes the move and its flame together
   await expect(flame).toHaveCount(0);
   await expect(page.locator(".clip[title=\"hero · Breathe fire\"]")).toHaveCount(0);
@@ -184,7 +186,7 @@ test("Breathe fire brings its flame", async ({ page }) => {
 // ---- editing in the preview
 const stageTweak = async (page: import("@playwright/test").Page) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await expect(page.getByTestId("preview")).toHaveAttribute("data-ready", "1");
 };
 
@@ -222,10 +224,10 @@ test("arrow keys nudge the selection", async ({ page }) => {
   await expect(page.getByLabel("X", { exact: true })).toHaveValue("83");
   await page.keyboard.press("Shift+ArrowDown");
   await expect(page.getByLabel("Y", { exact: true })).toHaveValue("158");
-  await expect(page.getByTestId("timecode").locator("b")).toHaveText("0.00");
+  await expect(page.getByTestId("timecode").locator("b")).toHaveText("00:00.00");
   await page.keyboard.press("Escape");
   await page.keyboard.press("ArrowRight"); // nothing selected: scrubs again
-  await expect(page.getByTestId("timecode").locator("b")).toHaveText("1.00");
+  await expect(page.getByTestId("timecode").locator("b")).toHaveText("00:01.00");
 });
 
 test("aim handle turns the flame", async ({ page }) => {
@@ -257,7 +259,7 @@ test("aim handle turns the flame", async ({ page }) => {
 
 test("choosing Breathe fire in the inspector adds the flame too, in one undo step", async ({ page }) => {
   await openFixture(page, { breathe: true, extraAnim: "walk" });
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.locator("[data-id=a1]").click();
   await page.getByLabel("Move", { exact: true }).selectOption("anim:breathe");
   await expect(page.locator(".clip.fx[title=\"fire breath\"]")).toBeVisible({ timeout: 30000 });
@@ -268,7 +270,7 @@ test("choosing Breathe fire in the inspector adds the flame too, in one undo ste
 
 test("tweak: + Shot adds a close-up and a white flash at the playhead", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await expect(page.getByTestId("preview")).toHaveAttribute("data-ready", "1");
   await page.keyboard.press("ArrowRight");
   await page.getByRole("button", { name: /\+ Shot/ }).click();
@@ -283,7 +285,7 @@ test("tweak: + Shot adds a close-up and a white flash at the playhead", async ({
 
 test("tweak: a close-up's zoom shows in the inspector and can be changed; Space picks a menu item", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await expect(page.getByTestId("preview")).toHaveAttribute("data-ready", "1");
   await page.keyboard.press("ArrowRight");
   const shot = page.getByRole("button", { name: /\+ Shot/ });
@@ -308,7 +310,7 @@ test("tweak: a close-up's zoom shows in the inspector and can be changed; Space 
 
 test("tweak: in a close-up, clicking the character on screen picks them", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   const canvas = page.getByTestId("preview");
   await expect(canvas).toHaveAttribute("data-ready", "1");
   await page.keyboard.press("ArrowRight");
@@ -351,7 +353,7 @@ test("tweak: in a close-up, clicking the character on screen picks them", async 
 
 test("Say… puts a speech bubble on the actor's row, its words typed in the inspector", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.getByRole("button", { name: "Add a move for hero" }).click();
   await page.getByRole("menuitem", { name: "Say…" }).click();
   const words = page.getByLabel("Words", { exact: true });
@@ -381,7 +383,7 @@ test("a flame's reach stretches it in one undo step", async ({ page }) => {
 
 test("keys: Home and End jump to the ends; [ and ] set the selected bar's start and end at the playhead", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.keyboard.press("End");
   await expect(page.getByTestId("timecode")).toContainText("frame 150");
   await page.keyboard.press("Home");
@@ -415,7 +417,7 @@ test("scene notes: a still stretch is noted, and one click adds a look around", 
     input.dispatchEvent(new Event("change"));
   });
   await expect(page.getByLabel("Project name")).toHaveValue("Still scene");
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   const box = page.getByTestId("framing");
   await expect(box).toContainText("Nothing moves from 1.0 s to 10.0 s.");
   await box.getByRole("button", { name: /Add a look around/ }).click();
@@ -442,7 +444,7 @@ test("overlapping bars stack in lanes, so a short Hurt is not hidden under Turn 
     input.dispatchEvent(new Event("change"));
   });
   await expect(page.getByLabel("Project name")).toHaveValue("Lanes");
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   const hurt = await page.locator('.clip[data-id="a1"]').boundingBox();
   const dust = await page.locator('.clip[data-id="a2"]').boundingBox();
   expect(dust!.y).toBeGreaterThanOrEqual(hurt!.y + hurt!.height); // under it, not on top
@@ -451,7 +453,7 @@ test("overlapping bars stack in lanes, so a short Hurt is not hidden under Turn 
 
 test("copy a move and paste it onto another actor at the playhead", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await expect(page.getByTestId("preview")).toHaveAttribute("data-ready", "1");
   await page.getByTestId("drawer").getByRole("button", { name: "hero", exact: true }).click(); // a second hero
   await page.locator("[data-id=a1]").click(); // the first hero's walk
@@ -469,7 +471,7 @@ test("copy a move and paste it onto another actor at the playhead", async ({ pag
 
 test("zoom the timeline: bars get wider, the names stay in view while it scrolls", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   const walk = page.locator("[data-id=a1]");
   const w0 = (await walk.boundingBox())!.width;
   await page.getByRole("button", { name: "Zoom the timeline in" }).click();
@@ -486,7 +488,7 @@ test("zoom the timeline: bars get wider, the names stay in view while it scrolls
   const ruler = page.locator(".ruler .lane");
   const rb = (await ruler.boundingBox())!, tb = (await tracks.boundingBox())!;
   await page.mouse.click(tb.x + tb.width - 20, rb.y + rb.height / 2);
-  await expect(page.getByTestId("timecode")).toContainText(/^(4\.\d\d|5\.00) \//);
+  await expect(page.getByTestId("timecode")).toContainText(/^00:0(4\.\d\d|5\.00) \//);
   await page.getByRole("button", { name: "Zoom the timeline out" }).click();
   await page.getByRole("button", { name: "Zoom the timeline out" }).click();
   await expect.poll(async () => (await walk.boundingBox())!.width).toBeCloseTo(w0, 0);
@@ -494,7 +496,7 @@ test("zoom the timeline: bars get wider, the names stay in view while it scrolls
 
 test("Stand up: offered only while the actor is down, drawn as a moment, faded where it does nothing", async ({ page }) => {
   await openFixture(page, { extraAnim: "kneel" });
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await expect(page.getByTestId("preview")).toHaveAttribute("data-ready", "1");
   await page.keyboard.press("Home");
   await page.getByRole("button", { name: "Add a move for hero" }).click();
@@ -516,7 +518,7 @@ test("Stand up: offered only while the actor is down, drawn as a moment, faded w
 
 test("the play button keeps its icon while playing, so a click on the icon pauses", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await expect(page.getByTestId("preview")).toHaveAttribute("data-ready", "1");
   const btn = page.getByRole("button", { name: "Play (Space)" });
   await btn.click();
@@ -530,7 +532,7 @@ test("the play button keeps its icon while playing, so a click on the icon pause
 
 test("bars work from the keyboard: Tab selects one, Alt+→ moves it a frame, ? lists the keys", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   const bar = page.locator(".clip:not(.shot)").first();
   await bar.focus();
   await expect(bar).toHaveAttribute("aria-pressed", "true");
@@ -550,7 +552,7 @@ test("bars work from the keyboard: Tab selects one, Alt+→ moves it a frame, ? 
 test("the add-move menu stays on screen", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 640 });
   await openFixture(page, { extraAnim: "kneel" });
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await page.locator(".row-add").last().click();
   const box = await page.getByRole("menu").boundingBox();
   expect(box!.y + box!.height).toBeLessThanOrEqual(640);
@@ -558,7 +560,7 @@ test("the add-move menu stays on screen", async ({ page }) => {
 
 test("screen readers: the preview says what is on screen, and a stopped playhead is announced", async ({ page }) => {
   await openFixture(page);
-  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByRole("button", { name: "Tweak", exact: true }).click();
   const canvas = page.getByTestId("preview");
   await expect(canvas).toHaveAttribute("data-ready", "1");
   await expect(canvas).toHaveAttribute("aria-label", /^Preview at 0\.00 s, Shot 1 · .+, (.+ on stage|nobody on stage)$/);

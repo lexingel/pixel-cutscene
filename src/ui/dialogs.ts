@@ -27,11 +27,17 @@ export function toast(msg: string, kind: "info" | "error" = "info"): void {
     stack.className = "toasts";
     stack.setAttribute("role", "status");
     stack.setAttribute("aria-live", "polite");
+    stack.popover = "manual"; // top layer, so a toast is not hidden under an open modal's backdrop
     document.body.append(stack);
   }
   const t = document.createElement("div");
   t.className = `toast ${kind}`;
   t.textContent = msg;
   stack.append(t);
+  // top layer: shown again only under an open modal, so it re-enters above that modal's backdrop
+  if (stack.showPopover && (!stack.matches(":popover-open") || document.querySelector("dialog:modal"))) {
+    if (stack.matches(":popover-open")) stack.hidePopover();
+    stack.showPopover();
+  }
   setTimeout(() => t.remove(), kind === "error" ? 7000 : 4000);
 }

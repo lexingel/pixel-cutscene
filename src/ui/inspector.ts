@@ -8,6 +8,7 @@ import { pickTrack } from "./music";
 import { actorName, fxName, labelOf } from "../core/labels";
 import { moveLabel } from "../core/moves";
 import { find, moveEntry, resizeEntry, setCamera, setField, setMove, snap, type EditResult } from "./timelineEditor";
+import { catOfTrack } from "./category";
 import { freePath } from "../core/cast";
 import { decode } from "./cast";
 import { toast } from "./dialogs";
@@ -134,7 +135,9 @@ export function renderInspector(
   const at = find(tl, id)!;
   const e = at.e;
   const title = at.kind === "root" ? "Scene" : at.kind === "fx" ? "Effect" : at.kind[0].toUpperCase() + at.kind.slice(1);
-  host.innerHTML = `<header class="row between"><h2></h2><span class="small id"></span></header><div class="fields"></div>`;
+  host.innerHTML = `<header class="row between insp-head"><h2></h2><span class="small id"></span></header><div class="fields"></div>`;
+  const head = host.querySelector<HTMLElement>("header")!; // banded by what is selected; the scene itself stays neutral
+  if (at.kind !== "root") head.dataset.cat = catOfTrack(at.kind === "shot" ? "shots" : at.kind === "fx" ? "fx" : at.kind === "audio" ? "sfx" : "actor");
   host.querySelector("h2")!.textContent = title;
   host.querySelector(".id")!.textContent = at.kind === "root" ? "" : labelOf(tl, ctx.kit, id);
   const box = host.querySelector<HTMLElement>(".fields")!;
@@ -310,7 +313,7 @@ function voicePicker(kit: Kit, char: string, changed?: () => void): HTMLElement 
 function nextSteps(tl: Timeline, kit: Kit): string[] {
   const out: string[] = [];
   if (!tl.shots.some((s) => s.bg)) out.push("Click the shot bar in the Shots row, then Upload background or Generate background.");
-  if (!tl.actors.length) out.push(readyChars(kit).length ? "Drag a character in from Cast on the left." : "Add a character in ② Cast, then drag it in from the left.");
+  if (!tl.actors.length) out.push(readyChars(kit).length ? "Drag a character in from Cast on the left." : "Add a character in Cast, then drag it in from the left.");
   else if (!tl.actors.some((a) => a.actions.length)) out.push("Click the + beside an actor's name to give it something to do.");
   if (!tl.audio.length) out.push("Drag a track in from Sound and Music on the left (optional).");
   if (out.length) out.push("When “Ready to export” shows beside Next: Export, press it.");

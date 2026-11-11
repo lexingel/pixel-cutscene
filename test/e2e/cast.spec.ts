@@ -5,7 +5,7 @@ const heroDir = "test/fixtures/sprites/hero"; // relative to web/, where playwri
 test("cast: add own sprite folder, survives reload", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Start a new cutscene" }).click();
-  await page.getByRole("button", { name: "② Cast" }).click();
+  await page.getByRole("button", { name: "Cast", exact: true }).click();
   await page.locator("input[webkitdirectory]").setInputFiles(heroDir);
   await page.getByRole("button", { name: "Yes" }).click();
   const cast = page.getByTestId("cast-list");
@@ -23,7 +23,7 @@ test("cast: add own sprite folder, survives reload", async ({ page }) => {
 test("a drop that misses the drop zone stays in the app", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Start a new cutscene" }).click();
-  await page.getByRole("button", { name: "② Cast" }).click();
+  await page.getByRole("button", { name: "Cast", exact: true }).click();
   await expect(page.getByTestId("cast-list")).toBeVisible();
   const url = page.url();
   const prevented = await page.evaluate(() => {

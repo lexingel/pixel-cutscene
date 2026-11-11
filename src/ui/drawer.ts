@@ -1,4 +1,5 @@
 import { FX_LIST, fxThumb } from "../core/fxLibrary";
+import { CAT_LABEL, catOfItem } from "./category";
 import { charFrames } from "../core/frames";
 import { readyChars, type Img, type Kit } from "../core/kit";
 import type { Project } from "../core/project";
@@ -73,10 +74,11 @@ function playButton(label: string, src: () => { src: string; url?: string } | nu
 function itemButton(label: string, it: DrawerItem, onAdd: (it: DrawerItem, at: DropAt) => void, thumb?: HTMLCanvasElement, sub?: string): HTMLButtonElement {
   const b = el("button", { type: "button", className: thumb ? "d-item tile" : "d-item row", draggable: true });
   b.setAttribute("aria-label", label);
+  b.dataset.cat = catOfItem(it.kind);
   b.title = `${label} (drag onto the preview or a track, or press Enter)`;
   if (thumb) thumb.setAttribute("aria-hidden", "true");
   const name = el("span", { className: "d-name", textContent: label });
-  b.append(...(thumb ? [thumb, name] : [name]));
+  b.append(...(thumb ? [el("span", { className: "d-band", textContent: CAT_LABEL[catOfItem(it.kind)], ariaHidden: "true" }), thumb, name] : [name]));
   if (sub) b.append(el("span", { className: "d-sub", textContent: sub }));
   b.ondragstart = (e) => {
     e.dataTransfer?.setData(ITEM_MIME, JSON.stringify(it));
@@ -98,7 +100,7 @@ export function renderDrawer(host: HTMLElement, p: Project, onAdd: (it: DrawerIt
   // ---- Cast
   const cast = el("div", { className: "d-grid" });
   const chars = readyChars(p.kit, has);
-  if (!chars.length) cast.append(el("p", { className: "small muted", textContent: "No characters yet. Add one in ② Cast." }));
+  if (!chars.length) cast.append(el("p", { className: "small muted", textContent: "No characters yet. Add one in Cast." }));
   for (const c of chars) {
     const cv = thumbCanvas();
     cast.append(itemButton(c, { kind: "char", char: c }, onAdd, cv));
@@ -111,7 +113,7 @@ export function renderDrawer(host: HTMLElement, p: Project, onAdd: (it: DrawerIt
   }
 
   // ---- Effects
-  const q = el("input", { type: "search", placeholder: "Search effects", value: keepSearch });
+  const q = el("input", { type: "search", placeholder: "Search", value: keepSearch });
   q.setAttribute("aria-label", "Search effects");
   let cat = "all";
   const sel = el("select", {}, el("option", { value: "all", textContent: "All effects" }), ...[...new Set(FX_LIST.map((f) => f.category))].map((c) => el("option", { value: c, textContent: c })));
