@@ -8,8 +8,16 @@ import { existsSync } from "node:fs";
 // the file back are skipped with a message; the export itself still runs.
 // @ts-ignore node types are not part of the browser build
 const DEV_FFMPEG: string = process.env.FFMPEG ?? "";
-const onPath = (bin: string) => !spawnSync(bin, ["-version"]).error;
-export const FFMPEG = DEV_FFMPEG && existsSync(DEV_FFMPEG) ? DEV_FFMPEG : onPath("ffmpeg") ? "ffmpeg" : null;
+// A build older than 4.0 can't decode VP9 here and ignores the colour-matrix option, so it would fail the checks.
+const recent = (bin: string) => {
+  const r = spawnSync(bin, ["-version"], { encoding: "utf8" });
+  if (r.error) return false;
+  const m = /version n?(\d+)\.\d/.exec(r.stdout), git = /version N-(\d+)/.exec(r.stdout);
+  return m ? +m[1] >= 4 : git ? +git[1] >= 90000 : true;
+};
+// the copy pip's imageio-ffmpeg ships, when the PATH one is too old
+const imageio = () => spawnSync("python", ["-c", "import imageio_ffmpeg as i; print(i.get_ffmpeg_exe())"], { encoding: "utf8" }).stdout?.trim() ?? "";
+export const FFMPEG = [DEV_FFMPEG && existsSync(DEV_FFMPEG) ? DEV_FFMPEG : "", "ffmpeg", imageio()].find((b) => b && recent(b)) ?? null;
 export const NO_FFMPEG = "no ffmpeg/ffprobe found (FFMPEG or PATH), so the exported file cannot be checked";
 const text = (b: Uint8Array) => new TextDecoder().decode(b);
 export const ff = (...args: string[]): { stdout: Uint8Array; stderr: Uint8Array } => spawnSync(FFMPEG!, args, { encoding: "buffer", maxBuffer: 64 << 20 });
