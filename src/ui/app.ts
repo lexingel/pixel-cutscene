@@ -1,23 +1,29 @@
 import { startHomeFx } from "./homeFx";
 import { importAs } from "../core/cast";
-import { fromZip, newProject, toZip, type Project } from "../core/project";
+import { fromZip, newProject, type Project } from "../core/project";
 import { deleteProject, listProjects, loadProject, saveProject } from "../core/store";
 import { renderCast } from "./cast";
 import { renderScene } from "./scene";
 import { renderTweak } from "./tweak";
 import { confirmDialog, toast } from "./dialogs";
 import { openSettings } from "./settings";
-import { renderExport } from "./exportStep";
+import { downloadProject, renderExport } from "./exportStep";
 import { stepBar, type Step } from "./steps";
 
 // Route lives in the hash (#/p/<id>) so a reload reopens the same project.
 const projectIdFromHash = () => location.hash.match(/^#\/p\/(.+)$/)?.[1] ?? null;
 
-async function downloadZip(p: Project) {
-  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(await toZip(p)), download: `${p.name}.zip` });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+/** "5 minutes ago", "yesterday", "3 days ago"; older edits show the date. */
+function ago(ms: number): string {
+  const s = (ms - Date.now()) / 1000, rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  if (s > -60) return "just now";
+  if (s > -3600) return rtf.format(Math.round(s / 60), "minute");
+  if (s > -86400) return rtf.format(Math.round(s / 3600), "hour");
+  if (s > -7 * 86400) return rtf.format(Math.round(s / 86400), "day");
+  return new Date(ms).toLocaleDateString();
 }
+
+const ZIP_TIP = "A .zip of this project: project.json (timeline, cast, settings) and every image and sound. Open it again from the home page.";
 
 export function mountApp(root: HTMLElement): void {
   let current: Project | null = null;
@@ -31,7 +37,7 @@ export function mountApp(root: HTMLElement): void {
       await saveProject(current);
       if (status) status.textContent = "Saved";
     } catch {
-      toast("Could not save to this browser's storage. Download a zip to keep your work.", "error");
+      toast("Could not save to this browser's storage. Use Download project to keep a copy.", "error");
       if (status) status.textContent = "Not saved";
     }
   };
@@ -54,7 +60,7 @@ export function mountApp(root: HTMLElement): void {
     current ? showProject(current) : showHome();
   };
 
-  // A project zip, from the Open zip box or the sample.
+  // A project zip, from the Open a project box or the sample.
   async function openZip(blob: Blob, once = false) {
     try {
       const zipped = await fromZip(blob);
@@ -80,11 +86,11 @@ export function mountApp(root: HTMLElement): void {
     <header class="bar"><span class="brand">Pixel Cutscene</span></header>
     <main class="home">
       <h1>Make a pixel-art cutscene</h1>
-      <p class="hint">Describe a scene, add your character sprites, then export a pixel-perfect video. No account or keys needed.</p>
+      <p class="hint">Describe a scene, add your character sprites, then export a pixel-perfect video. No account needed, and AI drafting is optional.</p>
       <div class="row wrap start-row">
         <button class="btn primary" type="button" data-act="new">Start a new cutscene</button>
         <button class="btn" type="button" data-act="sample">Open the sample</button>
-        <label class="btn">Open zip<input type="file" accept=".zip,application/zip" hidden /></label>
+        <label class="btn" title="Open a project you downloaded as a .zip">Open a project (.zip)<input type="file" accept=".zip,application/zip" class="pick" /></label>
       </div>
       <h2 class="projects-head">Your projects</h2>
       <ul class="projects"></ul>
@@ -118,11 +124,13 @@ export function mountApp(root: HTMLElement): void {
     root.querySelector(".projects")!.append(
       ...list.map(({ id, name, updated }) => {
         const li = document.createElement("li");
-        li.innerHTML = `<a class="proj"><strong></strong><span class="small"></span></a><button class="btn" type="button">Download zip</button><button class="btn quiet" type="button">Duplicate</button><button class="btn quiet danger" type="button">Delete</button>`;
+        li.innerHTML = `<a class="proj"><strong></strong><span class="small"></span></a><button class="btn" type="button" title="${ZIP_TIP}">Download project</button><button class="btn quiet" type="button">Duplicate</button><button class="btn quiet danger" type="button">Delete</button>`;
         const a = li.querySelector("a")!;
         a.href = `#/p/${id}`;
         a.querySelector("strong")!.textContent = name;
-        a.querySelector(".small")!.textContent = `Edited ${new Date(updated).toLocaleString()}`;
+        const when = a.querySelector<HTMLElement>(".small")!;
+        when.textContent = `Edited ${ago(updated)}`;
+        when.title = new Date(updated).toLocaleString();
         const [zip, dup, del] = li.querySelectorAll("button");
         dup.onclick = async () => {
           if (dup.disabled) return;
@@ -135,10 +143,10 @@ export function mountApp(root: HTMLElement): void {
         };
         zip.onclick = async () => {
           const p = await loadProject(id);
-          if (p) await downloadZip(p);
+          if (p) await downloadProject(p);
         };
         del.onclick = async () => {
-          if (!(await confirmDialog("Delete project", `Delete "${name}"? This can't be undone. Download the zip first if you want to keep it.`, "Delete", "Cancel", true))) return;
+          if (!(await confirmDialog("Delete project", `Delete "${name}"? This can't be undone. Download the project first if you want to keep it.`, "Delete", "Cancel", true))) return;
           await deleteProject(id);
           await showHome();
         };
@@ -155,7 +163,7 @@ export function mountApp(root: HTMLElement): void {
       <span class="grow"></span>
       <span class="save small muted" aria-live="polite" data-testid="save-status">Saved</span>
       <button class="btn" type="button" data-act="settings">Settings</button>
-      <button class="btn" type="button" data-act="zip">Download zip</button>
+      <button class="btn" type="button" data-act="zip" title="${ZIP_TIP}">Download project</button>
     </header>
     <main class="page"></main>`;
     status = root.querySelector(".save");
@@ -165,7 +173,7 @@ export function mountApp(root: HTMLElement): void {
       p.name = name.value.trim() || "Untitled cutscene";
       changed();
     };
-    root.querySelector<HTMLButtonElement>("[data-act=zip]")!.onclick = () => downloadZip(p);
+    root.querySelector<HTMLButtonElement>("[data-act=zip]")!.onclick = () => downloadProject(p);
     root.querySelector<HTMLButtonElement>("[data-act=settings]")!.onclick = () => openSettings(() => showStep());
     const page = root.querySelector<HTMLElement>(".page")!;
     const go = (n: Step) => {

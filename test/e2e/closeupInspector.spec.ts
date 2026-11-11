@@ -27,9 +27,9 @@ test("a close-up's face and expression are picked from lists", async ({ page }) 
   await page.getByRole("button", { name: "③ Tweak" }).click();
   await page.locator(".clip.shot", { hasText: "close-up" }).click();
   const ins = page.locator(".inspector");
-  await expect(ins.getByLabel("face")).toHaveValue("knight");
-  await ins.getByLabel("face").selectOption("mage");
-  await ins.getByLabel("expression").selectOption("angry");
+  await expect(ins.getByLabel("Face")).toHaveValue("knight");
+  await ins.getByLabel("Face").selectOption("mage");
+  await ins.getByLabel("Expression").selectOption("angry");
   await expect.poll(() => page.evaluate(async () => {
     const { listProjects, loadProject } = await import("/src/core/store.ts" as string);
     const p = await loadProject((await listProjects()).find((m: { name: string }) => m.name === "Face pick").id);

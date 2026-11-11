@@ -1,5 +1,9 @@
 import { missingReport } from "../core/missing";
-import type { Project } from "../core/project";
+import { toZip, type Project } from "../core/project";
+import type { Img } from "../core/kit";
+import { frameZoom, renderFrame } from "../core/render";
+import { zoomFrame } from "../core/raster";
+import { decode } from "./cast";
 import { pickCodec, type Quality } from "../export/encode";
 import { MissingError, exportVideo, sliceFit, type ExportKind } from "../export/exporter";
 import { creditsText, loadTracks } from "./music";
@@ -14,6 +18,19 @@ function download(blob: Blob, name: string) {
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: name });
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+const mb = (n: number) => (n < 1e6 ? `${Math.max(1, Math.round(n / 1e3))} KB` : `${(n / 1e6).toFixed(1)} MB`);
+
+/** The project as a zip: project.json plus every image and sound under files/. */
+export async function downloadProject(p: Project): Promise<void> {
+  download(await toZip(p), `${p.name}.zip`);
+}
+
+/** project.json alone: the timeline, kit and settings, without the image and sound files. */
+export function downloadJson(p: Project): void {
+  const { files: _files, ...meta } = p;
+  download(new Blob([JSON.stringify(meta, null, 1)], { type: "application/json" }), `${p.name}.json`);
 }
 
 const OUT: Record<string, [number, number]> = { vertical: [1080, 1920], square: [1080, 1080] };
@@ -32,8 +49,11 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
   root.innerHTML = `
   <section class="export">
     <div><h1>Export</h1><p class="hint" data-testid="format-note">Checking what this browser can make…</p></div>
+    <figure class="poster"><canvas width="${W}" height="${H}" aria-label="The scene at the loop's start time"></canvas>
+      <figcaption class="small" data-testid="poster-note">Loading the scene…</figcaption></figure>
+    <p class="ready" data-testid="ready" hidden>Every piece is in and approved. Ready to export.</p>
     <div class="needs-list" hidden><p class="small"></p><ul></ul></div>
-    <label class="check"><input type="checkbox" data-act="draft" /> Draft: allow missing and unapproved pieces, with a DRAFT watermark</label>
+    <label class="check" data-testid="draft-row" hidden><input type="checkbox" data-act="draft" /> Draft: allow missing and unapproved pieces, with a DRAFT watermark</label>
     <div class="export-cards">
       <div class="card">
         <h2>Full video</h2>
@@ -55,7 +75,17 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
         </div>
         <button class="btn" type="button" data-act="loop">Export loop</button>
       </div>
+      <div class="card">
+        <h2>Project files</h2>
+        <p class="small">Back up this project or move it to another browser. Open the .zip again from the home page.</p>
+        <div class="row wrap">
+          <button class="btn" type="button" data-act="proj-zip">Download project (.zip)</button>
+          <button class="btn quiet" type="button" data-act="proj-json">project.json only</button>
+        </div>
+        <p class="small">The .zip has project.json (timeline, cast, settings) and every image and sound. The .json alone is the timeline and settings, without files.</p>
+      </div>
     </div>
+    <div class="done-row" data-testid="export-done" role="status" hidden><p></p><button class="btn" type="button" data-act="next-loop" hidden>Make a store loop next</button></div>
     <div class="progress-row" data-testid="export-progress" hidden>
       <progress max="1" value="0"></progress><span class="small" aria-live="polite"></span>
       <button class="btn" type="button" data-act="cancel">Cancel</button>
@@ -85,7 +115,43 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
       : "Your browser can't make MP4, so this is WebM (VP9 and Opus). Chrome and Edge can make MP4.";
   });
 
+  const done = $("[data-testid=export-done]");
+  const nextLoop = $<HTMLButtonElement>("[data-act=next-loop]");
+  nextLoop.onclick = () => {
+    const from = $<HTMLInputElement>("[data-act=from]");
+    from.scrollIntoView({ block: "center" });
+    from.focus();
+  };
+
+  // a still of the scene at the loop's From time, rendered like the export (at native size)
+  const poster = $<HTMLCanvasElement>(".poster canvas");
+  poster.style.width = `${W * Math.max(1, Math.floor(760 / W))}px`; // whole-number scale, so the still stays pixel-exact
+  let posterAt: ((t: number) => void) | null = null;
+  void (async () => {
+    const imgs = new Map<string, Img>();
+    for (const [path, blob] of p.files) if (/\.png$/i.test(path)) await decode(blob).then((im) => imgs.set(path, im), () => {});
+    if (!poster.isConnected) return;
+    const input = { tl, kit: p.kit, img: (path: string) => imgs.get(path) ?? null, draft: false, W, H }; // as the Tweak preview shows it
+    const native: Img = { w: W, h: H, px: new Uint8ClampedArray(W * H * 4) };
+    const zoomed = new Uint8ClampedArray(W * H * 4);
+    const g = poster.getContext("2d")!;
+    posterAt = (t) => {
+      t = Math.min(Math.max(t || 0, 0), tl.duration);
+      renderFrame(input, t, native);
+      const z = frameZoom(input, t);
+      if (z) zoomFrame(native, z.z, z.x, z.y, 1, zoomed, k);
+      g.putImageData(new ImageData(z ? zoomed : native.px, W, H), 0, 0);
+      $("[data-testid=poster-note]").textContent = `The scene at ${t.toFixed(1)} s, where the store loop starts. Change From to look elsewhere.`;
+    };
+    posterAt(Number($<HTMLInputElement>("[data-act=from]").value));
+  })();
+  $<HTMLInputElement>("[data-act=from]").addEventListener("input", (e) => posterAt?.(Number((e.target as HTMLInputElement).value)));
+
   const missing = missingReport(tl, p.kit, false, (path) => p.files.has(path));
+  $("[data-act=proj-zip]").onclick = () => downloadProject(p);
+  $("[data-act=proj-json]").onclick = () => downloadJson(p);
+  $("[data-testid=ready]").hidden = missing.length > 0;
+  $("[data-testid=draft-row]").hidden = !missing.length; // nothing to stand in for: no draft to offer
   if (missing.length) {
     $(".needs-list").hidden = false;
     $(".needs-list p").textContent = `The full export waits for ${missing.length} piece${missing.length > 1 ? "s" : ""} (approve them in ③ Tweak), or tick Draft:`;
@@ -94,6 +160,7 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
 
   async function run(kind: ExportKind) {
     alert.textContent = "";
+    done.hidden = true;
     const ctl = new AbortController();
     const range: [number, number] = [Number($<HTMLInputElement>("[data-act=from]").value), Number($<HTMLInputElement>("[data-act=to]").value)];
     buttons.forEach((b) => (b.disabled = true)); // before any await, so a double click starts one export
@@ -122,7 +189,11 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
       if (!bar.isConnected) return;
       download(blob, name);
       const credits = kind !== "full" ? "" : creditsText(p.tl!, p.kit, await loadTracks().catch(() => []));
-      if (credits) download(new Blob([`${credits}\n`], { type: "text/plain" }), name.replace(/\.[^.]+$/, "_credits.txt"));
+      const creditsName = name.replace(/\.[^.]+$/, "_credits.txt");
+      if (credits) download(new Blob([`${credits}\n`], { type: "text/plain" }), creditsName);
+      done.hidden = false;
+      done.querySelector("p")!.textContent = `Saved ${name} (${mb(blob.size)}) to your downloads${credits ? `, with ${creditsName} for the music credits` : ""}.`;
+      nextLoop.hidden = kind !== "full";
       alert.textContent = "";
       $(".progress-row span").textContent = "";
     } catch (e) {

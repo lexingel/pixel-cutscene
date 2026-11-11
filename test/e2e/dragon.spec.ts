@@ -99,8 +99,8 @@ test("three heroes, a dragon, fire, dust", async ({ page }) => {
   await page.getByTestId("drawer").getByRole("button", { name: "dragon", exact: true }).dragTo(canvas, {
     targetPosition: { x: (160 * box.width) / 960, y: (400 * box.height) / 540 },
   });
-  await expect(page.getByLabel("x", { exact: true })).toHaveValue(/^(159|160|161)$/); // the drop point is in screen pixels
-  await expect(page.getByLabel("y", { exact: true })).toHaveValue(/^(399|400|401)$/);
+  await expect(page.getByLabel("X", { exact: true })).toHaveValue(/^(159|160|161)$/); // the drop point is in screen pixels
+  await expect(page.getByLabel("Y", { exact: true })).toHaveValue(/^(399|400|401)$/);
   const dragon = "dragon"; // rows are named by character; the three heroes are "hero 1" to "hero 3"
   await expect(page.locator(".track-label[data-actor] .who")).toHaveText(["hero 1", "hero 2", "hero 3", dragon]);
 
@@ -114,14 +114,14 @@ test("three heroes, a dragon, fire, dust", async ({ page }) => {
   await flame.click();
 
   // aim it at the heroes: drag the handle (24 px right of the mouth) to a point a little below the mouth; the re-bake takes seconds
-  const mx = Number(await page.getByLabel("x", { exact: true }).inputValue()), my = Number(await page.getByLabel("y", { exact: true }).inputValue());
+  const mx = Number(await page.getByLabel("X", { exact: true }).inputValue()), my = Number(await page.getByLabel("Y", { exact: true }).inputValue());
   const pv = (await canvas.boundingBox())!, k = pv.width / 960;
   await page.mouse.move(pv.x + (mx + 24) * k, pv.y + my * k);
   await page.mouse.down();
   await page.mouse.move(pv.x + (mx + 100) * k, pv.y + (my + 8) * k, { steps: 4 });
   await page.mouse.move(pv.x + (mx + 200) * k, pv.y + (my + 18) * k, { steps: 4 });
   await page.mouse.up();
-  await expect(page.locator("output[aria-label=effect]")).toHaveAttribute("data-asset", /_a5(_r\d+)?$/, { timeout: 120_000 });
+  await expect(page.locator("output[aria-label=Effect]")).toHaveAttribute("data-asset", /_a5(_r\d+)?$/, { timeout: 120_000 });
 
   await seekTo(page, 3, 18); // 3.6 s
   for (let i = 1; i <= 3; i++) await addMove(page, `hero ${i}`, "Hurt");
@@ -140,9 +140,10 @@ test("three heroes, a dragon, fire, dust", async ({ page }) => {
   await page.waitForTimeout(300);
   await page.screenshot({ path: "test-results/dragon-1280x800.png" });
 
-  // a Draft export: 1920x1080, DURATION x 30 frames
+  // a full export: 1920x1080, DURATION x 30 frames (as a Draft only if something is still missing)
   await page.getByRole("button", { name: "④ Export" }).click();
-  await page.getByLabel(/Draft/).check();
+  const draftBox = page.getByLabel(/Draft/);
+  if (await draftBox.isVisible()) await draftBox.check();
   const dl = page.waitForEvent("download", { timeout: 240_000 });
   await page.getByRole("button", { name: "Export video" }).click();
   const d = await dl;

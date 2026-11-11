@@ -5,7 +5,7 @@ import { camAt } from "../src/core/cam";
 import { newProject } from "../src/core/project";
 import { swaps, targetOf, useOwnFiles } from "../src/ui/approvals";
 import {
-  History, addAction, addEntry, deleteEntry, lanes, moveEntry, moveShotEdge, playhead, resizeEntry, setCamera, setField, splitShot, trimStart,
+  History, addAction, addEntry, deleteEntry, lanes, moveEntry, moveShotEdge, playhead, resizeEntry, setCamera, setField, splitShot, trimStart, copyEntry, pasteEntry,
 } from "../src/ui/timelineEditor";
 
 const tl = (): Timeline => ({
@@ -231,4 +231,20 @@ test("[ trims a bar with a length from the start: its end stays put", () => {
   const t2 = tl();
   t2.actors[0].actions.push({ id: "a2", t: 4, do: "hurt" });
   expect(trimStart(t2, "a2", 4.5).tl.actors[0].actions[1].t).toBe(4.5); // no length: the bar just moves
+});
+
+test("copy and paste: a move lands at the playhead, on the chosen actor, with a new id", () => {
+  const t = tl();
+  t.actors.push({ id: "hero2", char: "hero", x: 60, y: 100, actions: [] });
+  const clip = copyEntry(t, "a1")!;
+  let r = pasteEntry(t, clip, 3.5, "hero2");
+  expect(r.error).toBeUndefined();
+  expect(r.tl.actors[1].actions).toEqual([{ id: r.id, t: 3.5, do: "walk", to: [50, 100], dur: 2 }]);
+  expect(r.id).not.toBe("a1");
+  r = pasteEntry(r.tl, clip, 0.5); // no actor chosen: back on its own actor
+  expect(r.tl.actors[0].actions.map((a) => a.t)).toEqual([0.5, 1]);
+  expect(copyEntry(t, "hero1")).toBeNull(); // actors and shots are not copied
+  t.fx.push({ id: "f1", t: 1, fx: "spark", x: 5, y: 6, locked: true });
+  const f = pasteEntry(t, copyEntry(t, "f1")!, 2);
+  expect(f.tl.fx[1]).toEqual({ id: f.id, t: 2, fx: "spark", x: 5, y: 6 }); // a copy is not locked
 });

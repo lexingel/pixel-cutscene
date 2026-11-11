@@ -8,7 +8,7 @@ test("delete asks first, then removes the project", async ({ page }) => {
   const row = page.locator(".projects li", { hasText: "Untitled cutscene" });
   await row.getByRole("button", { name: "Delete" }).click();
   const dlg = page.getByRole("dialog");
-  await expect(dlg).toContainText(`Delete "Untitled cutscene"? This can't be undone. Download the zip first if you want to keep it.`);
+  await expect(dlg).toContainText(`Delete "Untitled cutscene"? This can't be undone. Download the project first if you want to keep it.`);
   await dlg.getByRole("button", { name: "Cancel" }).click();
   await expect(row).toHaveCount(1);
   await row.getByRole("button", { name: "Delete" }).click();

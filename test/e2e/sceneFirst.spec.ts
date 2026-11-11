@@ -82,3 +82,18 @@ test("scene first: without a PixelLab key the card's Generate is shut", async ({
   await expect(page.getByTestId("cast-list")).not.toContainText("hero");
   await expect(page.getByTestId("needed")).toBeHidden();
 });
+
+test("without an AI key, Write it myself leads and Draft it says what it needs", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start a new cutscene" }).click();
+  await expect(page.getByRole("button", { name: "Write it myself" })).toHaveClass(/primary/);
+  await expect(page.getByRole("button", { name: "Draft it (needs an AI key)" })).toBeDisabled();
+});
+
+test("the scene size names the real export size (the sample is 320×180 at ×4)", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open the sample" }).click();
+  await page.getByRole("button", { name: "① Scene" }).click();
+  await expect(page.getByLabel("Scene size")).toHaveValue("");
+  await expect(page.locator(".scene-size option:checked")).toHaveText("320×180, ×4");
+});

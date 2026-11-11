@@ -2,7 +2,7 @@
 export const DUST_DUR = 1.5;
 
 const LABELS: Record<string, string> = {
-  idle: "Stand",
+  idle: "Stand up", // standing is what actors do between moves: this only gets them up after a fall, a kneel, a death
   walk: "Walk to…",
   move: "Move to…",
   look_around: "Look around",

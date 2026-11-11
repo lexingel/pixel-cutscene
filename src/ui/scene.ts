@@ -6,7 +6,8 @@ import { readyChars } from "../core/kit";
 import { bakeDraftFx } from "../core/fxLibrary";
 import { decode } from "./cast";
 import type { SceneScale } from "../ai/scenePrompt";
-import { CANVAS_SIZES, setCanvas, type Project } from "../core/project";
+import { CANVAS_SIZES, fromZip, setCanvas, type Project } from "../core/project";
+import { addStarter, coverScale, startingBg } from "../core/starter";
 import { toast } from "./dialogs";
 import type { Step } from "./steps";
 
@@ -26,32 +27,82 @@ async function sceneScale(p: Project): Promise<SceneScale> {
   return { sizes, feetY: ground?.type === "wide" ? ground.ground : Math.round(p.canvas.H * 0.9) };
 }
 
+// The scene at its own pixel size, shown at one fixed width: a smaller scene makes the same character bigger.
+// It draws the background and one character the project already has, standing on the floor line.
+async function peek(c: HTMLCanvasElement, p: Project): Promise<void> {
+  const { W, H } = p.canvas;
+  c.width = W; c.height = H;
+  c.parentElement!.querySelector("figcaption")!.textContent = `${W}×${H}, exported at ${W * p.canvas.exportScale}×${H * p.canvas.exportScale}`;
+  const g = c.getContext("2d")!;
+  g.fillStyle = "#16171b"; g.fillRect(0, 0, W, H);
+  const shot = p.tl?.shots[0], bgId = (shot?.type === "wide" && shot.bg) || startingBg(p);
+  const bgPath = bgId ? p.kit.assets[bgId]?.path : undefined;
+  let floor = Math.round(H * 0.9);
+  if (bgPath && p.files.has(bgPath)) {
+    const bmp = await createImageBitmap(p.files.get(bgPath)!);
+    const k = coverScale(p.canvas, { w: bmp.width, h: bmp.height }), g0 = p.kit.assets[bgId!].ground;
+    g.imageSmoothingEnabled = false;
+    g.drawImage(bmp, 0, 0, bmp.width * k, bmp.height * k);
+    if (g0 !== undefined) floor = Math.round(g0 * k);
+  } else {
+    g.fillStyle = "#2a2c33"; g.fillRect(0, floor, W, H - floor);
+  }
+  const ch = readyChars(p.kit, (f) => p.files.has(f))[0], f = ch && p.kit.chars[ch].anims.idle?.frames[0];
+  if (f && p.files.has(f)) {
+    const bmp = await createImageBitmap(p.files.get(f)!);
+    g.drawImage(bmp, Math.round(W * 0.3 - bmp.width / 2), floor - bmp.height);
+  }
+}
+
 export function renderScene(root: HTMLElement, p: Project, changed: () => void, go: (n: Step) => void): void {
-  root.innerHTML = `<section class="empty-page"><h1>Scene</h1>
+  root.innerHTML = `<section class="empty-page scene-page"><h1>Scene</h1>
+    <figure class="scene-peek"><canvas class="px"></canvas><figcaption class="small"></figcaption></figure>
     <label class="scene-text">What happens in your cutscene? <textarea rows="8" data-testid="scene-text" placeholder="Three heroes walk into a cave. A ghost appears and they freeze..."></textarea></label>
     <label class="scene-size">Scene size <select data-act="size"></select><span class="small"></span></label>
     <div class="row"><button class="btn primary" type="button" data-act="draft">Draft it</button>
     <button class="btn" type="button" data-act="own">Write it myself</button></div>
-    <p class="hint" data-testid="scene-hint"></p></section>`;
+    <p class="hint" data-testid="scene-hint"></p>
+    <p class="starter" hidden>No sprites yet? <button class="btn quiet" type="button" data-act="starter">Use the starter pack</button>
+    <span class="small">a knight, a ranger, a dusk background, a campfire and calm music, free to use</span></p></section>`;
   const text = root.querySelector<HTMLTextAreaElement>("textarea")!;
   // the scene's pixel size: all export to 1920x1080, smaller = chunkier pixels and bigger characters
   const size = root.querySelector<HTMLSelectElement>("[data-act=size]")!;
   const NAMES = ["Small, chunky pixels", "Medium", "Large", "HD, fine pixels"];
   size.append(...CANVAS_SIZES.map((c, i) => Object.assign(document.createElement("option"), { value: String(i), textContent: `${NAMES[i]}: ${c.W}×${c.H}, ×${c.exportScale}` })));
-  const cur = CANVAS_SIZES.findIndex((c) => c.W === p.canvas.W && c.H === p.canvas.H);
-  if (cur < 0) size.prepend(Object.assign(document.createElement("option"), { value: "", textContent: `${p.canvas.W}×${p.canvas.H}` }));
+  const { W: cw, H: ch, exportScale: ck } = p.canvas;
+  const cur = CANVAS_SIZES.findIndex((c) => c.W === cw && c.H === ch && c.exportScale === ck);
+  if (cur < 0) size.prepend(Object.assign(document.createElement("option"), { value: "", textContent: `${cw}×${ch}, ×${ck}` }));
   size.value = cur < 0 ? "" : String(cur);
   const locked = !!(p.tl?.actors.length || p.tl?.fx.length);
   size.disabled = locked;
-  size.nextElementSibling!.textContent = locked ? "Set before anyone is placed: positions are in scene pixels." : "Exports at 1920×1080. A smaller scene makes characters bigger on screen.";
+  if (locked) { // the way back: the size frees up once the stage is empty again
+    const open = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: "Open Tweak" });
+    open.onclick = () => go(3);
+    const why = Object.assign(document.createElement("p"), { className: "small unlock", textContent: "To change it, remove everyone and every effect in ③ Tweak. " });
+    why.append(open);
+    size.closest("label")!.after(why);
+  }
+  size.nextElementSibling!.textContent = locked ? "Set before anyone is placed: positions are in scene pixels." : `Exports at ${cw * ck}×${ch * ck}. A smaller scene makes characters bigger on screen.`;
+  const peekNow = () => void peek(root.querySelector<HTMLCanvasElement>(".scene-peek canvas")!, p);
+  peekNow();
   size.onchange = () => {
-    if (size.value && setCanvas(p, CANVAS_SIZES[Number(size.value)])) changed();
+    if (size.value && setCanvas(p, CANVAS_SIZES[Number(size.value)])) {
+      changed();
+      peekNow();
+      size.nextElementSibling!.textContent = `Exports at ${p.canvas.W * p.canvas.exportScale}×${p.canvas.H * p.canvas.exportScale}. A smaller scene makes characters bigger on screen.`;
+    }
   };
   const draft = root.querySelector<HTMLButtonElement>("[data-act=draft]")!;
   const own = root.querySelector<HTMLButtonElement>("[data-act=own]")!;
   const hint = root.querySelector<HTMLElement>(".hint")!;
   text.value = p.description;
   const hasKey = !!getKeys().ai;
+  if (!hasKey) { // building by hand is the way in; drafting waits for a key
+    draft.classList.remove("primary");
+    own.classList.add("primary");
+    own.after(draft);
+    draft.textContent = "Draft it (needs an AI key)";
+  }
   const sync = () => (draft.disabled = !hasKey || !text.value.trim());
   text.oninput = () => {
     p.description = text.value;
@@ -63,8 +114,39 @@ export function renderScene(root: HTMLElement, p: Project, changed: () => void, 
     ? "The draft also names the characters your scene needs; the ones you don't have yet wait for you in ② Cast."
     : "No AI key? Press Write it myself and build the scene by hand in ③ Tweak. (Draft it needs an AI key in Settings.)";
 
-  own.onclick = () => {
-    p.tl ??= emptyTimeline();
+  const starter = root.querySelector<HTMLElement>(".starter")!;
+  starter.hidden = readyChars(p.kit, (f) => p.files.has(f)).length > 0;
+  const starterBtn = starter.querySelector<HTMLButtonElement>("button")!;
+  starterBtn.onclick = async () => {
+    starterBtn.disabled = true;
+    try {
+      const r = await fetch(`${import.meta.env.BASE_URL}sample/sample.zip`);
+      if (!r.ok) throw new Error();
+      const pack = await fromZip(await r.blob());
+      const added = addStarter(p, pack);
+      // the pack is drawn for its own scene size; switched to it while nothing is placed yet
+      const at = CANVAS_SIZES.findIndex((c) => c.W === pack.canvas.W && c.H === pack.canvas.H);
+      if (added.length && at >= 0 && !size.disabled && setCanvas(p, CANVAS_SIZES[at])) size.value = String(at);
+      changed();
+      starter.hidden = true;
+      toast(added.length ? `Added ${added.join(", ")}. Find them on the left in ③ Tweak.` : "The starter pack is already in this project.");
+    } catch {
+      toast("Could not load the starter pack. Check your connection and try again.", "error");
+      starterBtn.disabled = false;
+    }
+  };
+
+  own.onclick = async () => {
+    if (!p.tl) {
+      p.tl = emptyTimeline();
+      // the first shot starts on a background from the kit, if there is one, not on a black stage
+      const bg = startingBg(p), shot = p.tl.shots[0];
+      const img = bg ? await decode(p.files.get(p.kit.assets[bg].path)!).catch(() => null) : null;
+      if (bg && img && shot.type === "wide") {
+        const k = coverScale(p.canvas, img), g = p.kit.assets[bg].ground;
+        Object.assign(shot, { bg, bg_scale: k }, g !== undefined ? { ground: g * k } : {});
+      }
+    }
     changed();
     go(3);
   };

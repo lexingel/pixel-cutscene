@@ -11,7 +11,7 @@ Click **Open the sample** on the home screen to see a finished scene.
 
 ## Keys and privacy
 
-Everything runs in your browser. Projects are saved in this browser's storage, and **Download zip** gives you a copy.
+Everything runs in your browser. Projects are saved in this browser's storage, and **Download project** gives you a .zip copy (project.json plus every image and sound).
 API keys (AI provider, PixelLab, ElevenLabs) are optional. You add them in Settings, they are kept only in this browser's local storage, and they go only to the provider they belong to. Any call that costs money asks you first.
 Browser storage is shared by every page on the same origin (here `lexingel.github.io`), so use keys with a spending limit and clear them in Settings when you are done. If you run the tool yourself (below), your keys stay on your own origin.
 

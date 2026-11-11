@@ -30,7 +30,7 @@ export type FixtureOpts = {
   unapproved?: boolean; // the tone is unapproved (implies sound)
 };
 
-/** Opens the fixture project, zipped with the app's own toZip and loaded through the "Open zip" input.
+/** Opens the fixture project, zipped with the app's own toZip and loaded through the "Open a project (.zip)" input.
  * 320x180 canvas, a solid field background, the hero's idle_0..3 and a 5 s timeline with one wide
  * shot and one walk (walk frames missing unless extraAnim is "walk", so it shows in Needs approval). */
 export async function openFixture(page: Page, opts: FixtureOpts | string = {}) {

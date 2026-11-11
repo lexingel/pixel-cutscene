@@ -8,7 +8,7 @@ import { missingReport } from "../core/missing";
 import type { Project } from "../core/project";
 import { actorFocus, frameZoom, fxEnd, newFxDur, renderFrame } from "../core/render";
 import { unzoom, zoomFrame, zoomView } from "../core/raster";
-import { actionSpan, pose, shotAt } from "../core/acting";
+import { actionSpan, downAt, pose, shotAt } from "../core/acting";
 import { charFrames } from "../core/frames";
 import { validateTimeline } from "../core/timeline";
 import type { Actor, Timeline } from "../core/types";
@@ -26,15 +26,17 @@ import { renderInspector } from "./inspector";
 import { emptyTimeline } from "./scene";
 import type { Step } from "./steps";
 import {
-  FPS, History, addAction, addEntry, deleteEntry, find, lanes, moveEntry, moveShotEdge, newId, playhead, resizeEntry, setField, snap, splitShot, trimStart, insertShot, panShot, transition, type EditResult,
+  FPS, History, addAction, addEntry, deleteEntry, find, lanes, moveEntry, moveShotEdge, newId, playhead, resizeEntry, setField, snap, splitShot, trimStart, copyEntry, pasteEntry, type Clip, insertShot, panShot, transition, type EditResult,
 } from "./timelineEditor";
 
-const ACTIONS_MENU = ["idle", "walk", "move", "look_around", "startle", "hurt", "dust", "say"];
+const ACTIONS_MENU = ["walk", "move", "look_around", "startle", "hurt", "dust", "say"];
 const pct = (x: number) => `${(x * 100).toFixed(4)}%`;
 const ICON_PLAY = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>`;
 const ICON_PAUSE = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z" fill="currentColor"/></svg>`;
 const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+
+let clipboard: Clip | null = null; // Ctrl+C / Ctrl+V; kept while the tab is open, across projects
 
 export function renderTweak(root: HTMLElement, p: Project, changed: () => void, go: (n: Step) => void): void {
   if (!p.tl) {
@@ -64,17 +66,21 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     <div class="stage"><canvas class="px preview" data-testid="preview" aria-label="Preview" tabindex="0"></canvas><canvas class="px overlay" aria-hidden="true"></canvas></div>
     <div class="transport">
       <button class="btn icon" type="button" data-act="play" aria-label="Play (Space)" title="Play / pause (Space)"></button>
-      <span class="timecode" data-testid="timecode" aria-live="off"></span>
+      <span class="timecode" data-testid="timecode" aria-hidden="true"></span><span class="sr-only" data-testid="sr-time" aria-live="polite"></span>
       <span class="sep"></span>
       <button class="btn quiet" type="button" data-act="undo" title="Undo (Ctrl+Z)">Undo</button>
       <button class="btn quiet" type="button" data-act="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+      <span class="sep"></span>
+      <button class="btn icon quiet" type="button" data-act="zoom-out" aria-label="Zoom the timeline out" title="Zoom the timeline out (Ctrl+wheel on the tracks)">−</button>
+      <button class="btn icon quiet" type="button" data-act="zoom-in" aria-label="Zoom the timeline in" title="Zoom the timeline in (Ctrl+wheel on the tracks)">+</button>
       <span class="grow"></span>
+      <button class="btn quiet" type="button" data-act="keys" aria-haspopup="dialog" title="Keyboard shortcuts (?)">Keys</button>
       <button class="btn quiet" type="button" data-act="shot" aria-haspopup="menu" aria-expanded="false" title="Add a shot or a transition at the playhead">+ Shot ▾</button>
       <span class="status" data-testid="status"></span>
       <button class="btn primary" type="button" data-act="next">Next: Export</button>
     </div>
     <div class="tracks" data-testid="tracks"></div>
-    <aside class="side"><section class="inspector"></section><section class="frame-box" data-testid="framing" hidden></section><section class="needs-box"></section></aside>
+    <aside class="side"><section class="inspector"></section><section class="guide-box" role="region" aria-label="Getting started" hidden></section><section class="frame-box" data-testid="framing" hidden></section><section class="needs-box"></section></aside>
   </div>`;
   const $ = <T extends HTMLElement>(s: string) => root.querySelector<T>(s)!;
   const canvas = $<HTMLCanvasElement>(".preview");
@@ -152,10 +158,31 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     view = z ? zoomView(W, H, z.z, z.x, z.y, 1, p.canvas.exportScale) : null;
     g.putImageData(new ImageData(z ? zoomed : frame.px, W, H), 0, 0);
     $("[data-testid=timecode]").innerHTML = `<b>${t.toFixed(2)}</b> / ${T.duration.toFixed(2)} s <span class="muted">· frame ${Math.round(t * FPS)}</span>`;
+    if (!playing) say(T); // read out where a stopped playhead is, never every frame of playback
     tracks.style.setProperty("--p", String(t / T.duration));
-    playBtn.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
-    playBtn.setAttribute("aria-label", playing ? "Pause (Space)" : "Play (Space)");
+    if (playing && zoom > 1) { // a zoomed strip follows the playhead
+      const x = 92 + 10 + ((tracks.scrollWidth - 92) - 20) * (t / T.duration) - tracks.scrollLeft;
+      if (x < 92 || x > tracks.clientWidth - 20) tracks.scrollLeft += x - 92 - 20;
+    }
+    // only when it changes: rebuilding the icon every frame swallowed clicks that landed on it
+    if (playBtn.dataset.state !== String(playing)) {
+      playBtn.dataset.state = String(playing);
+      playBtn.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
+      playBtn.setAttribute("aria-label", playing ? "Pause (Space)" : "Play (Space)");
+    }
     drawOverlay();
+  }
+
+  // what screen readers get: the preview describes its frame, and a stopped playhead is announced once it settles
+  let sayTimer = 0;
+  function say(T: Timeline) {
+    const shot = T.shots.length ? shotAt(T, t) : null;
+    const frames = charFrames(p.kit, (k: string) => imgs.get(k) ?? null, false, (f: string) => p.files.has(f));
+    const on = T.actors.filter((a) => { const q = pose(a, t, frames); return q && !q.gone; }).map((a) => actorName(T, a.id));
+    canvas.setAttribute("aria-label", `Preview at ${t.toFixed(2)} s, ${shot ? shotName(T, shot.id) : "no shots"}, ${on.length ? `${on.join(", ")} on stage` : "nobody on stage"}`);
+    clearTimeout(sayTimer);
+    const text = `${t.toFixed(2)} of ${T.duration.toFixed(2)} s, frame ${Math.round(t * FPS)}`;
+    sayTimer = window.setTimeout(() => ($("[data-testid=sr-time]").textContent = text), 250);
   }
 
   // ---- audio: decoded lazily on first play, started and stopped to follow activeAudio(t)
@@ -209,9 +236,12 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
 
   // ---- transport
   let wall0 = 0, t0 = 0;
+  let played = false;
   async function play() {
     if (t >= tl().duration) t = 0;
     playing = true;
+    played = true;
+    drawGuide();
     paint();
     try {
       await loadAudio();
@@ -334,7 +364,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     if (!knownItem(p.kit, it)) return void toast("That item is not in this project.", "error");
     const when = at.t !== undefined ? snap(at.t) : snap(t);
     if (it.kind === "char") {
-      const r = addEntry(tl(), "actors", { char: it.char, x: at.x ?? Math.round(W / 2), y: snapGround(at.y ?? Math.round(H * 0.8), groundAt(tl(), when)), actions: [], ...(when > 0 ? { appear: when } : {}) }, "actor");
+      const r = addEntry(tl(), "actors", { char: it.char, x: at.x ?? Math.round(W / 2), y: snapGround(at.y ?? groundAt(tl(), when) ?? Math.round(H * 0.8), groundAt(tl(), when)), actions: [], ...(when > 0 ? { appear: when } : {}) }, "actor");
       return commit(r, r.id);
     }
     if (it.kind === "fx") {
@@ -524,13 +554,28 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       const nudge = !mod && document.activeElement === canvas ? nudgeTarget(tl(), selected, t) : null; // preview focused + something movable selected
       if (mod && e.key.toLowerCase() === "z") travel(e.shiftKey ? hist.redo(tl()) : hist.undo(tl()));
       else if (mod && e.key.toLowerCase() === "y") travel(hist.redo(tl()));
+      else if (mod && e.key.toLowerCase() === "c" && selected) {
+        if (!(clipboard = copyEntry(tl(), selected) ?? clipboard)) return;
+        toast("Copied. Select an actor (or one of its moves) and press Ctrl+V to paste at the playhead.");
+      } else if (mod && e.key.toLowerCase() === "v" && clipboard) {
+        const at = selected ? find(tl(), selected) : null;
+        const actor = at?.kind === "actor" ? at.e.id : at?.kind === "action" ? at.actor.id : undefined;
+        const r = pasteEntry(tl(), clipboard, t, actor);
+        commit(r, r.id ?? selected);
+      }
       else if (e.key === " ") {
         tgt.blur?.(); // keep a focused button from also taking the press
         playing ? pause() : play();
       } else if (e.key === "Escape" && selected) {
         selected = null;
         draw();
-      } else if (nudge && ARROWS[e.key]) {
+      } else if (e.altKey && selected && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        const at = find(tl(), selected);
+        if (!at || at.kind === "shot" || !("t" in at.e)) return;
+        const step = (e.shiftKey ? 1 : 1 / FPS) * (e.key === "ArrowLeft" ? -1 : 1);
+        commit(moveEntry(tl(), selected, Math.max(0, Number(at.e.t) + step)), selected);
+      } else if (e.key === "?") showKeys();
+      else if (nudge && ARROWS[e.key]) {
         const [dx, dy] = ARROWS[e.key];
         const k = e.shiftKey ? 8 : 1;
         commit(moveBy(tl(), nudge, dx * k, dy * k));
@@ -538,7 +583,10 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
         const step = (e.shiftKey ? 1 / FPS : 1) * (e.key === "ArrowLeft" ? -1 : 1);
         seek(snap(t + step));
       } else if (e.key === "Home" || e.key === "End") seek(e.key === "Home" ? 0 : tl().duration);
-      else if (e.key === "[" && selected) commit(trimStart(tl(), selected, t)); // the bar starts here, its end stays
+      else if ((e.key === "[" || e.key === "]") && selected && tl().shots.some((x) => x.id === selected)) { // a shot: move its cut
+        const S = tl().shots, i = S.findIndex((x) => x.id === selected), j = e.key === "[" ? i - 1 : i + 1;
+        if (S[j]) commit(e.key === "[" ? moveShotEdge(tl(), S[j].id, selected, t) : moveShotEdge(tl(), selected, S[j].id, t));
+      } else if (e.key === "[" && selected) commit(trimStart(tl(), selected, t)); // the bar starts here, its end stays
       else if (e.key === "]" && selected) { // the bar ends here
         const at = find(tl(), selected);
         const t0 = at && "t" in at.e ? Number(at.e.t) : NaN;
@@ -550,12 +598,65 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     { signal: keys.signal },
   );
 
+  const KEYS: [string, string][] = [
+    ["Space", "Play / pause"],
+    ["← →", "Move the playhead 1 s (Shift: one frame)"],
+    ["Home / End", "Jump to the start / end"],
+    ["Tab", "Go through the bars; the focused bar is selected"],
+    ["Alt + ← →", "Move the selected bar one frame (Shift: 1 s)"],
+    ["[ / ]", "Start / end the selected bar at the playhead (on a shot: move its cut)"],
+    ["Delete", "Remove the selected bar"],
+    ["Ctrl + C / Ctrl + V", "Copy a bar, paste it at the playhead"],
+    ["Ctrl + Z / Ctrl + Shift + Z", "Undo / redo"],
+    ["Ctrl + wheel", "Zoom the timeline"],
+    ["Arrows on the preview", "Nudge the selected actor or effect (Shift: 8 px)"],
+    ["Esc", "Clear the selection"],
+  ];
+  function showKeys() {
+    const d = Object.assign(document.createElement("dialog"), { className: "dialog keys" });
+    d.setAttribute("aria-label", "Keyboard shortcuts");
+    d.innerHTML = `<h2>Keyboard shortcuts</h2><dl>${KEYS.map(([k, v]) => `<dt><kbd>${esc(k)}</kbd></dt><dd>${esc(v)}</dd>`).join("")}</dl>
+      <div class="row end"><button class="btn primary" type="button">Close</button></div>`;
+    document.body.append(d);
+    d.querySelector("button")!.onclick = () => d.close();
+    d.onclose = () => (d.remove(), $<HTMLButtonElement>("[data-act=keys]").focus());
+    d.showModal();
+  }
+  $<HTMLButtonElement>("[data-act=keys]").onclick = showKeys;
+
   // ---- tracks
-  function bar(id: string, label: string, start: number, dur: number | undefined, opts: { grip?: boolean; warn?: boolean; locked?: boolean; cls?: string; lane?: number }) {
+  // timeline zoom: the lanes are `zoom` times the strip's width and scroll sideways; the names stay pinned
+  let zoom = 1;
+  const setZoom = (z: number, anchorX?: number) => {
+    z = Math.min(16, Math.max(1, Math.round(z * 100) / 100));
+    if (z === zoom) return;
+    const box = tracks.getBoundingClientRect(), label = 92;
+    // keep the time under anchorX (or the playhead) where it is on screen
+    const ax = anchorX ?? Math.min(box.width, Math.max(label, label + (tracks.scrollWidth - label) * (t / tl().duration) - tracks.scrollLeft));
+    const frac = (tracks.scrollLeft + ax - label) / (tracks.scrollWidth - label);
+    zoom = z;
+    tracks.style.setProperty("--z", String(z));
+    drawTracks();
+    tracks.scrollLeft = frac * (tracks.scrollWidth - label) - (ax - label);
+    $<HTMLButtonElement>("[data-act=zoom-out]").disabled = z <= 1;
+    $<HTMLButtonElement>("[data-act=zoom-in]").disabled = z >= 16;
+  };
+  $<HTMLButtonElement>("[data-act=zoom-in]").onclick = () => setZoom(zoom * 1.5);
+  $<HTMLButtonElement>("[data-act=zoom-out]").onclick = () => setZoom(zoom / 1.5);
+  $<HTMLButtonElement>("[data-act=zoom-out]").disabled = true;
+  tracks.addEventListener("wheel", (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    setZoom(zoom * (e.deltaY < 0 ? 1.25 : 0.8), e.clientX - tracks.getBoundingClientRect().left);
+  }, { passive: false });
+
+  function bar(id: string, label: string, start: number, dur: number | undefined, opts: { grip?: boolean; warn?: boolean; locked?: boolean; cls?: string; lane?: number; tip?: string }) {
     const D = tl().duration;
     const cls = ["clip", opts.cls ?? "", id === selected ? "sel" : "", opts.warn ? "warn" : "", opts.locked ? "locked" : ""].join(" ");
     const w = dur ? `width:${pct(dur / D)}` : "";
-    return `<div class="${cls}" data-id="${esc(id)}" style="left:${pct(start / D)};${w};--k:${opts.lane ?? 0}" title="${esc(labelOf(tl(), p.kit, id))}">
+    const end = dur ? `to ${(start + dur).toFixed(1)} s` : "";
+    const name = `${labelOf(tl(), p.kit, id)}, ${start.toFixed(1)} s ${end}`.trim();
+    return `<div class="${cls}" data-id="${esc(id)}" role="button" tabindex="0" aria-pressed="${id === selected}" aria-label="${esc(name)}" style="left:${pct(start / D)};${w};--k:${opts.lane ?? 0}" title="${esc(opts.tip ?? labelOf(tl(), p.kit, id))}">
       <span>${esc(label)}</span>${opts.grip ? `<i class="grip" aria-hidden="true"></i>` : ""}</div>`;
   }
   function drawTracks() {
@@ -568,7 +669,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const row = (label: string, lane: string, attrs = "", sel = false, cls = "", n = 1) =>
       `<div class="track ${cls}"${n > 1 ? ` style="min-height:${4 + n * 26}px"` : ""}><div class="track-label${sel ? " sel" : ""}" ${attrs}>${label}</div><div class="lane" ${attrs}>${lane}</div></div>`;
     // bars that overlap stack in lanes; a short bar counts as 44 px wide so its label shows
-    const minS = (D * 44) / Math.max(200, tracks.clientWidth - 92);
+    const minS = (D * 44) / Math.max(200, (tracks.clientWidth - 92) * zoom);
     const stack = (items: { t: number; len?: number }[]) => {
       const k = lanes(items, minS);
       return { k, n: Math.max(1, ...k.map((x) => x + 1)) };
@@ -579,7 +680,12 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       const { k, n } = stack(spans);
       return row(
         `<span class="who">${esc(actorName(T, a.id))}</span><button class="row-add" type="button" data-add="${esc(a.id)}" aria-haspopup="menu" aria-expanded="false" aria-label="Add a move for ${esc(actorName(T, a.id))}" title="Add a move at the playhead">+</button>`,
-        a.actions.map((x, i) => bar(x.id, x.do === "say" ? `“${x.text ?? ""}”` : moveLabel(x.do), x.t, spans[i].len, { grip: x.dur !== undefined, warn: warn.has(x.id), locked: x.locked, lane: k[i] })).join(""),
+        a.actions.map((x, i) => bar(x.id, x.do === "say" ? `“${x.text ?? ""}”` : moveLabel(x.do), x.t, spans[i].len, {
+          grip: x.dur !== undefined, warn: warn.has(x.id), locked: x.locked, lane: k[i],
+          // Stand up is a moment, not a stretch: a tag; faded when the actor is already standing
+          cls: x.do === "idle" ? `mark${downAt(a, x.t - 1e-6, frames) ? "" : " noop"}` : undefined,
+          tip: x.do === "idle" && !downAt(a, x.t - 1e-6, frames) ? "Does nothing here: the actor is already standing. Stand up gets an actor back up after a fall, a kneel or a death." : undefined,
+        })).join(""),
         `data-actor="${esc(a.id)}" title="Double-click the lane to add an action"`,
         a.id === selected, "", n,
       );
@@ -593,6 +699,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const auSpans = T.audio.map((s) => ({ t: s.t, len: bufs.get(s.clip)?.duration }));
     const auLanes = stack(auSpans);
     const audio = T.audio.map((s, i) => bar(s.id, s.line ? `${s.clip} “${s.line}”` : s.clip, s.t, auSpans[i].len, { warn: warn.has(s.id), locked: s.locked, cls: s.kind, lane: auLanes.k[i] })).join("");
+    const focused = (document.activeElement as HTMLElement | null)?.closest?.(".clip")?.getAttribute("data-id");
     tracks.innerHTML = `
       ${row("", ticks, `data-ruler="1" title="Click or drag to move the playhead"`, false, "ruler")}
       ${row("Shots", shots)}
@@ -601,6 +708,8 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       ${row("Audio", audio, "", false, "", auLanes.n)}
       <div class="playhead" aria-hidden="true"></div>`;
     tracks.style.setProperty("--p", String(t / D));
+    // a redraw replaces the bars: keep keyboard focus on the same one
+    if (focused) tracks.querySelector<HTMLElement>(`.clip[data-id="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
   }
 
   // One pointer handler for the whole track area: seek on the ruler, move bars, drag grips and cuts.
@@ -678,6 +787,11 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       else commit(moveEntry(tl(), id, startT + sec(dx)), id);
     };
   };
+  // a bar reached by Tab is selected, as a click would
+  tracks.addEventListener("focusin", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>(".clip");
+    if (b?.dataset.id && b.dataset.id !== selected) commit({ tl: tl() }, b.dataset.id);
+  });
   // ---- the + on an actor's row: a small menu of moves, each added at the playhead
   tracks.onclick = (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-add]");
@@ -689,7 +803,9 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     if (!a) return;
     const own = Object.keys(p.kit.chars[a.char]?.anims ?? {}).filter((n) => n !== "idle" && n !== "walk" && n !== "hurt" && animStatus(p.kit, a.char, n, false, has) === "ok");
     // Attack and Breathe fire are always offered (the kit has no creature flag); picking one before it exists lands it in Needs approval
-    const items = [...ACTIONS_MENU, "anim:attack", "anim:breathe", ...own.filter((n) => n !== "attack" && n !== "breathe").map((n) => `anim:${n}`)];
+    const frames = charFrames(p.kit, imgOf, false, has);
+    // Stand up only when there is something to get up from
+    const items = [...(downAt(a, t, frames) ? ["idle"] : []), ...ACTIONS_MENU, "anim:attack", "anim:breathe", ...own.filter((n) => n !== "attack" && n !== "breathe").map((n) => `anim:${n}`)];
     const menu = Object.assign(document.createElement("div"), { className: "move-menu", role: "menu" });
     menu.setAttribute("aria-label", `Moves for ${actorName(tl(), actorId)}`);
     const r = anchor.getBoundingClientRect();
@@ -727,6 +843,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       e.stopPropagation();
     };
     document.body.append(menu);
+    menu.style.top = `${Math.max(4, Math.min(parseFloat(menu.style.top), innerHeight - menu.offsetHeight - 8))}px`; // measured: keep the last item on screen
     document.addEventListener("pointerdown", away, true);
     menu.querySelector("button")!.focus();
   }
@@ -759,6 +876,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       e.stopPropagation();
     };
     document.body.append(menu);
+    menu.style.top = `${Math.max(4, Math.min(parseFloat(menu.style.top), innerHeight - menu.offsetHeight - 8))}px`; // measured: keep the last item on screen
     document.addEventListener("pointerdown", away, true);
     menu.querySelector("button")!.focus();
   }
@@ -804,10 +922,32 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     renderInspector($(".inspector"), T, selected, { kit: p.kit, project: p, now: () => t, errors: errs, kitChanged, move: moveTo, reach: reachTo, aim: aimTo }, (r, sel) => commit(r, sel), (id) => commit(deleteEntry(tl(), id), null));
     renderApprovals($(".needs-box"), p, (r) => commit(r), kitChanged, moveTo);
     drawFraming();
+    drawGuide();
     drawStatus();
     $<HTMLButtonElement>("[data-act=undo]").disabled = !hist.canUndo;
     $<HTMLButtonElement>("[data-act=redo]").disabled = !hist.canRedo;
     paint();
+  }
+
+  // Getting started: three steps that tick as they are done, until "Got it" (remembered in this browser).
+  function drawGuide() {
+    const box = $(".guide-box");
+    let gone = false;
+    try { gone = localStorage.getItem("pc.guide") === "done"; } catch { /* private window: show it */ }
+    box.hidden = gone;
+    if (gone) return;
+    const T = tl();
+    const steps: [boolean, string][] = [
+      [T.actors.length > 0, "Drag a character from the left onto the picture (or click it)."],
+      [T.actors.some((a) => a.actions.length > 0), "Click + beside its name to give it something to do."],
+      [played, "Press Space to watch it, then Next: Export."],
+    ];
+    box.innerHTML = `<div class="need-head"><h2>Getting started</h2><button class="btn quiet" type="button">Got it</button></div><ol></ol>`;
+    box.querySelector("ol")!.append(...steps.map(([done, text]) => Object.assign(document.createElement("li"), { className: done ? "done" : "", textContent: text })));
+    box.querySelector("button")!.onclick = () => {
+      try { localStorage.setItem("pc.guide", "done"); } catch { /* it comes back next time */ }
+      box.hidden = true;
+    };
   }
 
   // Black gaps around a background, actors cut by an edge: worth a look, never a block on export.

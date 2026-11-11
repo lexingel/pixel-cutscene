@@ -45,7 +45,7 @@ test("opening a zip of a project already here imports a copy", async ({ page }, 
   await page.getByRole("button", { name: "Start a new cutscene" }).click();
   await page.getByLabel("Project name").fill("Backup test");
   await expect(page.getByTestId("save-status")).toHaveText("Saved");
-  const [dl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Download zip" }).click()]);
+  const [dl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Download project" }).click()]);
   const zip = info.outputPath("backup.zip");
   await dl.saveAs(zip);
   await page.getByRole("link", { name: "Pixel Cutscene" }).click();

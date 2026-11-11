@@ -212,3 +212,38 @@ test("store loops are made at Best quality, whatever the Quality select says", a
   const best = await page.evaluate(async () => (await import(`/src/export/${"encode"}.ts`)).bitrate(320, 180, "best"));
   expect(await page.evaluate(() => (window as any).rates)).toEqual([[320, best]]);
 });
+
+test("a ready scene says so, hides Draft, shows a still, and names the saved file after an export", async ({ page }) => {
+  test.setTimeout(120_000);
+  await openFixture(page, { extraAnim: "walk" });
+  await page.getByRole("button", { name: "④ Export" }).click();
+  await expect(page.getByTestId("ready")).toBeVisible();
+  await expect(page.getByTestId("draft-row")).toBeHidden();
+  await expect(page.getByTestId("poster-note")).toContainText("at 0.0 s");
+  await page.getByLabel("From (s)").fill("1.5");
+  await expect(page.getByTestId("poster-note")).toContainText("at 1.5 s");
+  const lit = await page.locator(".poster canvas").evaluate((c: HTMLCanvasElement) =>
+    c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data.some((v, i) => i % 4 === 3 && v > 0));
+  expect(lit).toBe(true);
+  await page.getByLabel("To (s)").fill("2");
+  expect(await exportAndSave(page, "Export loop", "done.webm")).toBe("Tweak fixture_loop.webm");
+  await expect(page.getByTestId("export-done")).toContainText("Saved Tweak fixture_loop.webm");
+  await expect(page.getByRole("button", { name: "Make a store loop next" })).toBeHidden();
+});
+
+test("a scene with missing pieces offers Draft and no ready line", async ({ page }) => {
+  await openFixture(page, { extraAnim: "walk", unapproved: true });
+  await page.getByRole("button", { name: "④ Export" }).click();
+  await expect(page.getByTestId("draft-row")).toBeVisible();
+  await expect(page.getByTestId("ready")).toBeHidden();
+});
+
+test("Project files: the .zip and project.json download from the export page", async ({ page }) => {
+  await openFixture(page, { extraAnim: "walk" });
+  await page.getByRole("button", { name: "④ Export" }).click();
+  expect(await exportAndSave(page, "Download project (.zip)", "proj.zip")).toBe("Tweak fixture.zip");
+  expect(await exportAndSave(page, "project.json only", "proj.json")).toBe("Tweak fixture.json");
+  const j = JSON.parse(text(readFileSync(`${OUT}/proj.json`)));
+  expect(j.tl.shots.length).toBeGreaterThan(0);
+  expect(j.files).toBeUndefined();
+});

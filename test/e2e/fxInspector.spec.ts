@@ -25,13 +25,13 @@ test("an effect's angle and facing are set in the inspector", async ({ page }) =
   await expect(page.getByLabel("Project name")).toHaveValue("Fx aim");
   await page.getByRole("button", { name: "③ Tweak" }).click();
   await page.locator(".clip.fx").first().click();
-  const angle = page.locator(".inspector").getByLabel("angle");
+  const angle = page.locator(".inspector").getByLabel("Angle");
   await angle.fill("45");
   await angle.press("Enter");
-  await expect(page.locator(".inspector").getByLabel("angle")).toHaveValue("45", { timeout: 30_000 });
-  const flip = page.locator(".inspector").getByLabel("faces left");
+  await expect(page.locator(".inspector").getByLabel("Angle")).toHaveValue("45", { timeout: 30_000 });
+  const flip = page.locator(".inspector").getByLabel("Faces left");
   await flip.check();
-  await expect(page.locator(".inspector").getByLabel("faces left")).toBeChecked();
+  await expect(page.locator(".inspector").getByLabel("Faces left")).toBeChecked();
   await expect.poll(() => page.evaluate(async () => {
     const { listProjects, loadProject } = await import("/src/core/store.ts" as string);
     const metas = await listProjects();

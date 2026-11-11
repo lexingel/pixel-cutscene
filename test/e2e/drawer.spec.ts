@@ -15,8 +15,8 @@ test("drag a character onto the preview", async ({ page }) => {
     targetPosition: { x: (100 * box.width) / 320, y: (150 * box.height) / 180 },
   });
   await expect(page.locator("[data-actor=actor1]").first()).toBeVisible();
-  await expect(page.getByLabel("x", { exact: true })).toHaveValue("100");
-  await expect(page.getByLabel("y", { exact: true })).toHaveValue("150");
+  await expect(page.getByLabel("X", { exact: true })).toHaveValue("100");
+  await expect(page.getByLabel("Y", { exact: true })).toHaveValue("150");
 });
 
 test("pick an effect by search", async ({ page }) => {
@@ -41,7 +41,7 @@ test("drop a track on the timeline", async ({ page }) => {
   const first = page.getByTestId("drawer").getByRole("button", { name: /^(?!Play|New sound)/ }).filter({ has: page.locator(".d-sub") }).first();
   await first.dragTo(lane, { targetPosition: { x: (box.width * 2) / 5, y: box.height / 2 } });
   await expect(page.locator(".clip.music")).toHaveCount(1);
-  await expect(page.getByLabel("t (s)", { exact: true })).toHaveValue("2");
+  await expect(page.getByLabel("Start (s)", { exact: true })).toHaveValue("2");
 });
 
 test("New sound adds a placeholder that waits for approval", async ({ page }) => {
@@ -78,7 +78,7 @@ test("dragging the end of an older looping effect starts from the length its bar
   await drawer.getByLabel("Search effects").fill("campfire");
   await drawer.getByRole("button", { name: "campfire" }).focus();
   await page.keyboard.press("Enter");
-  const dur = page.getByLabel("dur (s)", { exact: true });
+  const dur = page.getByLabel("Length (s)", { exact: true });
   await expect(dur).toHaveValue("2");
   await dur.fill(""); // an effect saved before loops had a length: it plays to the scene's end
   await dur.blur();

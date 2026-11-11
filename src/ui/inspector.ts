@@ -1,3 +1,4 @@
+import { coverScale } from "../core/starter";
 import { readyChars, type Kit } from "../core/kit";
 import { ACTIONS, KINDS } from "../core/timeline";
 import { audioPlan, elevenKey, generateAudio, voicesFor } from "./eleven";
@@ -32,60 +33,60 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
   const e = at.e;
   switch (at.kind) {
     case "root":
-      return [{ key: "name", label: "name", kind: "text" }, NUM("duration", "duration (s)"), NUM("closeup_scale", "close-up scale", true), { key: "shadows", label: "ground shadows", kind: "bool", optional: true }];
+      return [{ key: "name", label: "Name", kind: "text" }, NUM("duration", "Length (s)"), NUM("closeup_scale", "Close-up scale", true), { key: "shadows", label: "Ground shadows", kind: "bool", optional: true }];
     case "shot":
       return [
-        { key: "bg", label: "background", kind: "select", options: ["", ...assetIds(kit, ["bg", "backdrop"])], optional: true },
-        ...(e.type === "wide" ? [NUM("bg_scale", "bg scale"), NUM("ground", "ground line y", true)] : [
-          { key: "face", label: "face", kind: "select" as Kind, options: uniq([e.face, ...Object.keys(kit.faces), ...tl.actors.map((a) => a.char)]) },
-          { key: "expr", label: "expression", kind: "select" as Kind, options: uniq([e.expr, ...MOODS, ...Object.keys(kit.faces[e.face] ?? {})]) },
+        { key: "bg", label: "Background", kind: "select", options: ["", ...assetIds(kit, ["bg", "backdrop"])], optional: true },
+        ...(e.type === "wide" ? [NUM("bg_scale", "Background scale"), NUM("ground", "Ground line (y)", true)] : [
+          { key: "face", label: "Face", kind: "select" as Kind, options: uniq([e.face, ...Object.keys(kit.faces), ...tl.actors.map((a) => a.char)]) },
+          { key: "expr", label: "Expression", kind: "select" as Kind, options: uniq([e.expr, ...MOODS, ...Object.keys(kit.faces[e.face] ?? {})]) },
         ]),
-        NUM("fade_in", "fade in (s)", true),
-        NUM("fade_out", "fade out (s)", true),
-        NUM("flash", "white flash (s)", true),
-        ...(e.type === "wide" ? [NUM("shake", "shake (s)", true)] : []),
+        NUM("fade_in", "Fade in (s)", true),
+        NUM("fade_out", "Fade out (s)", true),
+        NUM("flash", "White flash (s)", true),
+        ...(e.type === "wide" ? [NUM("shake", "Shake (s)", true)] : []),
         ...(e.type === "wide" && e.zoom ? [ // a zoom made from + Shot; clear "zoom from" or "zoom to" to remove it
-          NUM("zoom.from", "zoom from (×)", true), NUM("zoom.to", "zoom to (×)", true),
-          { key: "zoom.actor", label: "zoom follows", kind: "select" as Kind, options: ["", ...tl.actors.map((a) => a.id)], optional: true, text: (o: string) => (o ? actorName(tl, o) : "a fixed point") },
-          ...(e.zoom.actor ? [] : [NUM("zoom.x", "zoom on x"), NUM("zoom.y", "zoom on y")]),
+          NUM("zoom.from", "Zoom from (×)", true), NUM("zoom.to", "Zoom to (×)", true),
+          { key: "zoom.actor", label: "Zoom follows", kind: "select" as Kind, options: ["", ...tl.actors.map((a) => a.id)], optional: true, text: (o: string) => (o ? actorName(tl, o) : "a fixed point") },
+          ...(e.zoom.actor ? [] : [NUM("zoom.x", "Zoom on x"), NUM("zoom.y", "Zoom on y")]),
         ] : []),
       ];
     case "actor":
       return [
-        { key: "char", label: "character", kind: "select", options: readyChars(kit) },
-        NUM("x"), NUM("y"),
-        { key: "flip", label: "faces left", kind: "bool", optional: true },
-        { key: "layer", label: "layer", kind: "select", options: ["", "front", "back"], optional: true, text: (o: string) => LAYER_TEXT[o] },
-        NUM("appear", "appears at (s)", true),
+        { key: "char", label: "Character", kind: "select", options: readyChars(kit) },
+        NUM("x", "X"), NUM("y", "Y"),
+        { key: "flip", label: "Faces left", kind: "bool", optional: true },
+        { key: "layer", label: "Layer", kind: "select", options: ["", "front", "back"], optional: true, text: (o: string) => LAYER_TEXT[o] },
+        NUM("appear", "Appears at (s)", true),
       ];
     case "action": {
       const anims = Object.keys(kit.chars[at.actor.char]?.anims ?? {}).map((a) => `anim:${a}`);
       const walks = e.do === "walk" || e.do === "move";
       return [
-        { key: "do", label: "action", kind: "select", options: [...new Set([...ACTIONS, "anim:attack", "anim:breathe", ...anims])], text: moveLabel },
-        NUM("t", "t (s)"),
-        NUM("dur", "dur (s)", true),
-        ...(walks ? [NUM("to.0", "to x"), NUM("to.1", "to y")] : []),
+        { key: "do", label: "Move", kind: "select", options: [...new Set([...ACTIONS, "anim:attack", "anim:breathe", ...anims])], text: moveLabel },
+        NUM("t", "Start (s)"),
+        NUM("dur", "Length (s)", true),
+        ...(walks ? [NUM("to.0", "Go to x"), NUM("to.1", "Go to y")] : []),
         ...(e.do === "say" ? [
-          { key: "text", label: "words", kind: "text" as Kind },
-          { key: "style", label: "shown as", kind: "select" as Kind, options: ["", "box"], optional: true, text: STYLE_TEXT },
+          { key: "text", label: "Words", kind: "text" as Kind },
+          { key: "style", label: "Shown as", kind: "select" as Kind, options: ["", "box"], optional: true, text: STYLE_TEXT },
         ] : []),
       ];
     }
     case "fx":
-      return [NUM("t", "t (s)"), NUM("dur", "dur (s)", true), NUM("x"), NUM("y"), { key: "flip", label: "faces left", kind: "bool", optional: true }];
+      return [NUM("t", "Start (s)"), NUM("dur", "Length (s)", true), NUM("x", "X"), NUM("y", "Y"), { key: "flip", label: "Faces left", kind: "bool", optional: true }];
     case "audio":
       return [
-        { key: "clip", label: "clip", kind: "text" },
-        { key: "kind", label: "kind", kind: "select", options: KINDS },
-        NUM("t", "t (s)"),
-        { key: "line", label: "line", kind: "text", optional: true },
+        { key: "clip", label: "Clip", kind: "text" },
+        { key: "kind", label: "Kind", kind: "select", options: KINDS },
+        NUM("t", "Start (s)"),
+        { key: "line", label: "Line", kind: "text", optional: true },
         ...(e.kind === "voice" ? [
-          { key: "speaker", label: "speaker", kind: "select" as Kind, options: ["", ...Object.keys(kit.chars)], optional: true },
-          { key: "bubble", label: "on screen", kind: "select" as Kind, options: ["", "box", "none"], optional: true, text: STYLE_TEXT },
+          { key: "speaker", label: "Speaker", kind: "select" as Kind, options: ["", ...Object.keys(kit.chars)], optional: true },
+          { key: "bubble", label: "On screen", kind: "select" as Kind, options: ["", "box", "none"], optional: true, text: STYLE_TEXT },
         ] : []),
-        ...(e.kind === "sfx" ? [NUM("dur", "length to make (s)", true)] : []),
-        NUM("vol_db", "volume (dB)", true),
+        ...(e.kind === "sfx" ? [NUM("dur", "Length to make (s)", true)] : []),
+        NUM("vol_db", "Volume (dB)", true),
       ];
   }
 }
@@ -174,8 +175,8 @@ export function renderInspector(
     lab.className = "field";
     const out = Object.assign(document.createElement("output"), { textContent: fxName(ctx.kit, e.fx) });
     out.dataset.asset = e.fx;
-    out.setAttribute("aria-label", "effect");
-    lab.append(Object.assign(document.createElement("span"), { textContent: "effect" }), out);
+    out.setAttribute("aria-label", "Effect");
+    lab.append(Object.assign(document.createElement("span"), { textContent: "Effect" }), out);
     box.prepend(lab);
     const a = ctx.kit.assets[e.fx];
     if (a?.source === "pixelfx" && ctx.aim) box.insertBefore(aimField(e.angle ?? 0, (n) => ctx.aim!(id, n)), box.querySelector(".foot"));
@@ -225,7 +226,7 @@ export function renderInspector(
     const note = Object.assign(document.createElement("p"), { className: n ? "hint err" : "hint" });
     note.textContent = n
       ? `${n} problem${n === 1 ? "" : "s"} in this timeline. First: ${ctx.errors[0]}`
-      : "Click a bar to edit it. Space plays, ← → move 1 s, Shift steps one frame, Home / End jump to the ends, [ and ] set a selected bar's start and end.";
+      : "Click a bar to edit it. Space plays, ← → move 1 s, Shift steps one frame, Home / End jump to the ends, [ and ] set a selected bar's start and end, Ctrl+C / Ctrl+V copy a bar to the playhead. Press ? for every key.";
     box.append(note);
     return;
   }
@@ -248,22 +249,22 @@ const kitChar = (kit: Kit, c: string) => kit.chars[c];
 function aimField(now: number, set: (n: number) => void): HTMLElement {
   const lab = Object.assign(document.createElement("label"), { className: "field" });
   const inp = Object.assign(document.createElement("input"), { type: "number", step: "5", min: "-180", max: "180", value: String(Math.round(now)) });
-  inp.setAttribute("aria-label", "angle");
+  inp.setAttribute("aria-label", "Angle");
   inp.onchange = () => {
     const n = Math.round(Number(inp.value));
     if (Number.isFinite(n) && n !== now) set(((((n + 180) % 360) + 360) % 360) - 180);
   };
-  lab.append(Object.assign(document.createElement("span"), { textContent: "angle (°)" }), inp);
+  lab.append(Object.assign(document.createElement("span"), { textContent: "Angle (°)" }), inp);
   return lab;
 }
 
 function reachField(now: number, set: (n: number) => void): HTMLElement {
   const lab = Object.assign(document.createElement("label"), { className: "field" });
   const sel = document.createElement("select");
-  sel.setAttribute("aria-label", "reach");
+  sel.setAttribute("aria-label", "Reach");
   for (let r = 1; r <= REACH_MAX; r += 0.5) sel.append(new Option(r === 1 ? "as drawn" : `${r}× as far`, String(r), false, r === now));
   sel.onchange = () => set(Number(sel.value));
-  lab.append(Object.assign(document.createElement("span"), { textContent: "reach" }), sel);
+  lab.append(Object.assign(document.createElement("span"), { textContent: "Reach" }), sel);
   return lab;
 }
 
@@ -319,7 +320,7 @@ function nextSteps(tl: Timeline, kit: Kit): string[] {
 // The user's own PNG as this shot's background; a wide shot scales it up to cover the canvas.
 function bgUpload(p: Project, tl: Timeline, id: string, apply: (r: EditResult) => void, kitChanged?: () => void): HTMLElement {
   const lab = Object.assign(document.createElement("label"), { className: "btn quiet", textContent: "Upload background" });
-  const inp = Object.assign(document.createElement("input"), { type: "file", accept: "image/png", hidden: true });
+  const inp = Object.assign(document.createElement("input"), { type: "file", accept: "image/png", className: "pick" });
   inp.onchange = async () => {
     const f = inp.files?.[0];
     inp.value = "";
@@ -338,7 +339,7 @@ function bgUpload(p: Project, tl: Timeline, id: string, apply: (r: EditResult) =
     p.files.set(path, f);
     p.kit.assets[aid] = { approved: true, source: "user", kind: wide ? "bg" : "backdrop", path };
     let r = setField(tl, id, "bg", aid);
-    if (wide && !r.error) r = setField(r.tl, id, "bg_scale", Math.max(1, Math.ceil(Math.max(p.canvas.W / img.w, p.canvas.H / img.h))));
+    if (wide && !r.error) r = setField(r.tl, id, "bg_scale", coverScale(p.canvas, img));
     apply(r);
     kitChanged?.();
   };

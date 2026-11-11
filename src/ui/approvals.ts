@@ -125,7 +125,8 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
   host.querySelector(".count")!.textContent = rows.length ? String(rows.length) : "";
   const list = host.querySelector("ul")!;
   const hint = pixellabKey() || elevenKey() ? "Generate a piece, upload your own files, or change the action." : `${NO_KEY} Or upload your own files, or change the action.`;
-  if (rows.length) list.before(Object.assign(document.createElement("p"), { className: "hint", textContent: hint }));
+  if (rows.length && rows.every((r) => r.why === "unapproved")) list.before(Object.assign(document.createElement("p"), { className: "hint", textContent: "Play each piece, then Approve it or try again." }));
+  else if (rows.length) list.before(Object.assign(document.createElement("p"), { className: "hint", textContent: hint }));
   const all = planAll(p);
   const n = all.pixellab.length + all.eleven.length;
   if (n > 1) {
@@ -171,7 +172,7 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
       const up = document.createElement("label");
       up.className = "btn quiet";
       up.textContent = "Upload my own";
-      const inp = Object.assign(document.createElement("input"), { type: "file", hidden: true, multiple: t.kind === "anim" });
+      const inp = Object.assign(document.createElement("input"), { type: "file", className: "pick", multiple: t.kind === "anim" });
       inp.accept = isAudio(t) ? "audio/*" : "image/png";
       inp.onchange = async () => {
         const files = [...(inp.files ?? [])];

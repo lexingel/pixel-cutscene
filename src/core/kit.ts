@@ -12,6 +12,7 @@ export type Kit = {
       kind: "bg" | "backdrop" | "fx" | "music" | "sfx" | "voice";
       path: string;
       len?: number; // seconds, for audio: learnt when the clip is first decoded
+      ground?: number; // a background's feet line, in its own pixels: a new shot on it starts with this ground
       fx?: { cols: number; frames: number; fps: number; loop: boolean; dx: number; dy: number };
     }
   >;

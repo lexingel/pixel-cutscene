@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import miniText from "./fixtures/mini.json?raw";
-import { ANIM_FPS, actionSpan, pose, shotAt } from "../src/core/acting";
+import { ANIM_FPS, actionSpan, downAt, pose, shotAt } from "../src/core/acting";
 import { activeAudio } from "../src/core/audioPlan";
 import { camAt } from "../src/core/cam";
 import type { Img } from "../src/core/kit";
@@ -174,4 +174,14 @@ test("a walk faces the way it goes and keeps facing it; a move (slide) does not 
   expect(pose(f, 0.5, frames)!.flip).toBe(true); // straight down: keeps its facing
   const m = act({ actions: [{ id: "a", t: 0, do: "move", to: [40, 250], dur: 1 }] });
   expect(pose(m, 0.5, frames)!.flip).toBe(false); // knocked back: still faces forward
+});
+
+test("downAt: an actor is down after a move that stays down, until something gets it up", () => {
+  const kneel = [img(), img()];
+  const f = (_c: string, n: string) => (n === "kneel" ? kneel : n === "idle" ? idle : []);
+  const a = act({ actions: [{ id: "k", t: 1, do: "anim:kneel" }, { id: "s", t: 3, do: "idle" }] });
+  expect(downAt(a, 0.5, f)).toBe(false);
+  expect(downAt(a, 2, f)).toBe(true);
+  expect(downAt(a, 3, f)).toBe(false); // stood up
+  expect(downAt(act({ actions: [{ id: "x", t: 0, do: "anim:attack" }] }), 2, f)).toBe(false);
 });

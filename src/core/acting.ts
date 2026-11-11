@@ -42,6 +42,12 @@ export type Pose = {
  * `frames` returns a character's frames for an anim; an empty array means missing.
  * Returns null before the actor appears.
  */
+/** True while the actor lies (or kneels, sits…) after a move that stays down: the last move by t is one of those. */
+export function downAt(actor: Actor, t: number, frames: Frames): boolean {
+  const last = actor.actions.filter((a) => a.t <= t).sort((a, b) => a.t - b.t).pop();
+  return !!last?.do.startsWith("anim:") && STAYS.test(last.do.slice(5)) && frames(actor.char, last.do.slice(5)).length > 0;
+}
+
 export function pose(actor: Actor, t: number, frames: Frames): Pose | null {
   if (actor.appear !== undefined && t < actor.appear) return null;
   const sorted = [...actor.actions].sort((a, b) => a.t - b.t);

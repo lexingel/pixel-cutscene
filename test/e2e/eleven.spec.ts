@@ -61,7 +61,7 @@ test("elevenlabs: pick a voice, generate a line and a sound, approve", async ({ 
   await expect(vo.getByRole("button", { name: "Generate" })).toBeDisabled();
 
   await page.locator("[data-id=vo1]").click();
-  await page.getByLabel("speaker").selectOption("hero");
+  await page.getByLabel("Speaker").selectOption("hero");
   const voice = page.getByLabel("voice for hero");
   await expect(voice.locator("option", { hasText: "Aria" })).toHaveCount(1);
   await voice.selectOption("v_aria_01");
@@ -99,7 +99,7 @@ test("elevenlabs: without a key Generate is off with a hint", async ({ page }) =
   await expect(gen).toHaveAttribute("title", "Add an ElevenLabs key in Settings to generate.");
   // without a key the voice id is typed, not picked
   await page.locator("[data-id=vo1]").click();
-  await page.getByLabel("speaker").selectOption("hero");
+  await page.getByLabel("Speaker").selectOption("hero");
   await page.getByLabel("voice for hero").fill("my_voice_id");
   await page.getByLabel("voice for hero").press("Tab");
   await expect(page.getByLabel("voice for hero")).toHaveValue("my_voice_id");
@@ -113,8 +113,8 @@ test("elevenlabs: a missing speaker is flagged and a failed voice list falls bac
   const vo = page.getByTestId("needs").locator("li", { hasText: "vo_close" });
   await expect(vo.getByRole("button", { name: "Generate" })).toHaveAttribute("title", "ghost is not in the cast. Pick a speaker in the inspector.");
   await page.locator("[data-id=vo1]").click();
-  await expect(page.getByLabel("speaker").locator("option", { hasText: "ghost (missing)" })).toHaveCount(1);
-  await page.getByLabel("speaker").selectOption("hero");
+  await expect(page.getByLabel("Speaker").locator("option", { hasText: "ghost (missing)" })).toHaveCount(1);
+  await page.getByLabel("Speaker").selectOption("hero");
   await expect(page.getByText("Could not load voices. Type a voice id.")).toBeVisible();
   await expect(page.getByLabel("voice for hero")).toHaveJSProperty("tagName", "INPUT");
 });

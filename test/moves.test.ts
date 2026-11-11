@@ -15,7 +15,7 @@ const tl = (action: object): Timeline =>
 describe("moves", () => {
   it("labels", () => {
     const want: Record<string, string> = {
-      idle: "Stand", walk: "Walk to…", move: "Move to…", look_around: "Look around", startle: "Startle",
+      idle: "Stand up", walk: "Walk to…", move: "Move to…", look_around: "Look around", startle: "Startle",
       hurt: "Hurt", dust: "Turn to dust", "anim:attack": "Attack", "anim:breathe": "Breathe fire", "anim:x": "Play: x",
     };
     for (const k in want) expect(moveLabel(k)).toBe(want[k]);

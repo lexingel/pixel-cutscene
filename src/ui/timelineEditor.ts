@@ -89,6 +89,23 @@ export const resizeEntry = (tl: Timeline, id: string, dur: number): EditResult =
     at.e.dur = Math.max(snap(dur), 1 / FPS);
   });
 
+/** What Ctrl+C keeps: a move (with the actor it came from), an effect or a sound; not shots or actors. */
+export type Clip = { kind: "action" | "fx" | "audio"; e: Obj; actor?: string };
+
+export function copyEntry(tl: Timeline, id: string): Clip | null {
+  const at = find(tl, id);
+  if (!at || (at.kind !== "action" && at.kind !== "fx" && at.kind !== "audio")) return null;
+  const { id: _id, locked: _l, ...e } = structuredClone(at.e) as Obj;
+  return { kind: at.kind, e, actor: at.kind === "action" ? at.actor.id : undefined };
+}
+
+/** Ctrl+V: the copy at t, with a fresh id; a move goes to `actor` (else back to the one it came from). */
+export function pasteEntry(tl: Timeline, clip: Clip, t: number, actor?: string): EditResult {
+  const e = { ...structuredClone(clip.e), t: snap(t) };
+  if (clip.kind === "action") return addAction(tl, actor ?? clip.actor!, e as Omit<Action, "id">);
+  return addEntry(tl, clip.kind, e, clip.kind === "fx" ? "f" : "sound");
+}
+
 /** `[`: the bar starts at t. A bar with a length keeps its end (trimmed); one without just moves there. */
 export const trimStart = (tl: Timeline, id: string, t: number): EditResult => {
   const at = find(tl, id);

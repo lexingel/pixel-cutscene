@@ -31,11 +31,11 @@ test("a stranger makes and exports a cutscene with no keys", async ({ page }) =>
   // ③ Tweak: a background for the wide shot, the hero with an idle, a library track
   await page.getByTitle("Shot 1 · wide").click(); // the shot bar (its label span ignores the pointer)
   await page.getByLabel("Upload background").setInputFiles("test/fixtures/bg/field.png");
-  await expect(page.getByLabel("background", { exact: true })).toHaveValue("field");
+  await expect(page.getByLabel("Background", { exact: true })).toHaveValue("field");
   await page.getByTestId("drawer").getByRole("button", { name: "hero", exact: true }).click();
   await page.getByRole("button", { name: "Add a move for hero" }).click();
-  await page.getByRole("menuitem", { name: "Stand" }).click();
-  await expect(page.getByLabel("action", { exact: true })).toHaveValue("idle");
+  await page.getByRole("menuitem", { name: "Look around" }).click();
+  await expect(page.getByLabel("Move", { exact: true })).toHaveValue("look_around");
 
   await page.getByTestId("drawer").locator(".d-row .d-item").first().click(); // the first library track
   await expect(page.getByText("Ready to export", { exact: true })).toBeVisible();
