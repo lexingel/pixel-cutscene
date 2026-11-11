@@ -14,6 +14,21 @@ type Obj = Record<string, any>;
 
 export const FPS = 30;
 export const snap = (t: number) => Math.round(t * FPS) / FPS;
+/** A lane per bar so none hides another: each takes the first lane free at its start. Bars count as at least `min` s long. */
+export function lanes(bars: { t: number; len?: number }[], min: number): number[] {
+  const ends: number[] = []; // per lane, where its last bar ends
+  const out: number[] = [];
+  for (const i of bars.map((_, i) => i).sort((a, b) => bars[a].t - bars[b].t)) {
+    const b = bars[i];
+    let k = ends.findIndex((e) => e <= b.t + 1e-9);
+    if (k < 0) k = ends.push(0) - 1;
+    ends[k] = b.t + Math.max(b.len ?? 0, min);
+    out[i] = k;
+  }
+  return out;
+}
+/** The frame playing `ms` after t0: the preview shows whole frames only, as the export does. */
+export const playhead = (t0: number, ms: number) => Math.floor((t0 + ms / 1000) * FPS + 1e-6) / FPS;
 const clamp = (x: number, lo: number, hi: number) => Math.min(Math.max(x, lo), hi);
 
 export type Found =
@@ -185,6 +200,7 @@ export const deleteEntry = (tl: Timeline, id: string): EditResult =>
       }
       case "actor":
         c.actors = c.actors.filter((a) => a.id !== id);
+        for (const s of c.shots) if (s.type === "wide" && s.zoom?.actor === id) delete s.zoom.actor; // the zoom keeps its spot
         return;
       case "action":
         at.actor.actions = at.actor.actions.filter((a: Action) => a.id !== id);

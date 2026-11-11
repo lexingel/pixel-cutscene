@@ -28,7 +28,7 @@ export function unassigned(p: Project, name: string): string[] {
 export function dropChar(p: Project, name: string): void {
   delete p.kit.chars[name];
   p.files.delete(`refs/${name}.png`); // a generated character's reference (src/gen/pixellab.ts refPath)
-  for (const k of [...p.files.keys()]) if (k.startsWith(charDir(name))) p.files.delete(k);
+  for (const k of [...p.files.keys()]) if (k.startsWith(charDir(name)) || k.startsWith(`orig/${charDir(name)}`)) p.files.delete(k); // orig/: frames from before Clean up
 }
 
 // Moves an unassigned file into `anim`, keeping frames in natural order and every path unique.

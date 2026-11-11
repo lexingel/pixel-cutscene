@@ -32,7 +32,7 @@ test("zip_roundtrip", async () => {
   const { files: _a, ...a } = p;
   const { files: _b, ...b } = q;
   expect(b).toEqual(a);
-  expect(p.canvas).toEqual({ W: 960, H: 540, exportScale: 2 });
+  expect(p.canvas).toEqual({ W: 480, H: 270, exportScale: 4 });
 });
 
 test("zip_missing_manifest_message", async () => {
@@ -110,4 +110,17 @@ test("zip_char_scale_and_size_checked", async () => {
   expect(ok.kit.chars.ogre.scale).toBe(2);
   await expect(fromZip(await build({ scale: 3 }))).rejects.toThrow(/ogre.*scale 3.*only 2/);
   await expect(fromZip(await build({ size: "vast" }))).rejects.toThrow(/ogre.*size "vast"/);
+});
+
+import { CANVAS_SIZES, setCanvas } from "../src/core/project";
+test("canvas_sizes_all_export_1080p_in_whole_pixels", () => {
+  for (const c of CANVAS_SIZES) expect([c.W * c.exportScale, c.H * c.exportScale]).toEqual([1920, 1080]);
+});
+test("the_canvas_changes_only_before_anyone_is_placed", () => {
+  const p = newProject("t");
+  expect(setCanvas(p, CANVAS_SIZES[0])).toBe(true);
+  expect(p.canvas).toEqual({ W: 320, H: 180, exportScale: 6 });
+  p.tl = { name: "t", duration: 5, shots: [], actors: [{ id: "a", char: "c", x: 1, y: 1, actions: [] }], fx: [], audio: [] };
+  expect(setCanvas(p, CANVAS_SIZES[2])).toBe(false);
+  expect(p.canvas.W).toBe(320);
 });

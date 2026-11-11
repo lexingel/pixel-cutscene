@@ -106,3 +106,22 @@ export async function fxThumb(id: string): Promise<Img> {
   const mid = Math.floor(n / 2);
   return { w, h, px: renderFxFrames(mod, {}, 30, mid + 1)[mid] };
 }
+
+/** Bakes every fx entry that names a library effect ("fire/fire-breath", as a drafted scene does) and points it at the
+ * baked asset; kit ids and unknown names are left alone (unknown ones show in Needs approval). Returns how many it baked. */
+export async function bakeDraftFx(p: Project, encode = defaultEncode): Promise<number> {
+  let n = 0;
+  for (const f of p.tl?.fx ?? []) {
+    if (p.kit.assets[f.fx] || !byId.has(f.fx)) continue;
+    f.fx = await addLibraryFx(p, f.fx, f.angle, encode, f.reach ?? 1);
+    n++;
+  }
+  return n;
+}
+
+/** Points an fx entry at a library effect (baked at the entry's angle and reach): for a missing effect in Needs approval. */
+export async function useLibraryFx(p: Project, tl: Timeline, entryId: string, libId: string, encode = defaultEncode): Promise<EditResult> {
+  const entry = tl.fx.find((f) => f.id === entryId);
+  if (!entry) return { tl, error: `No effect called ${entryId}.` };
+  return setField(tl, entryId, "fx", await addLibraryFx(p, libId, entry.angle, encode, entry.reach ?? 1));
+}

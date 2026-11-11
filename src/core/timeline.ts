@@ -36,6 +36,7 @@ export function validateTimeline(d: unknown): string[] {
   }
   if ("kit" in d && (typeof d.kit !== "string" || d.kit === "")) e.push("(root).kit: must be a non-empty string");
   if (!whole(d.closeup_scale ?? 1)) e.push("(root).closeup_scale: must be a whole number of 1 or more");
+  if ("shadows" in d && typeof d.shadows !== "boolean") e.push("(root).shadows: must be true or false");
 
   const list = (k: string): any[] => (Array.isArray(d[k]) ? d[k] : []);
   const all: any[] = [];
@@ -67,6 +68,7 @@ export function validateTimeline(d: unknown): string[] {
       const z = s.zoom;
       if (!isObj(z) || !(isNum(z.from) && z.from >= 1 && isNum(z.to) && z.to >= 1 && hasNum(z, "x") && hasNum(z, "y")))
         e.push(`${id}.zoom: needs from and to of 1 or more, and x and y numbers`);
+      else if (z.actor !== undefined && !list("actors").some((a) => isObj(a) && a.id === z.actor)) e.push(`${id}.zoom.actor: no actor ${str(z.actor)}`);
     }
     switch (str(s.type)) {
       case "wide":
@@ -96,6 +98,7 @@ export function validateTimeline(d: unknown): string[] {
     if (!(hasNum(a, "x") && hasNum(a, "y"))) e.push(`${aid}.x: an actor needs x and y numbers`);
     if ("appear" in a && !hasNum(a, "appear")) e.push(`${aid}.appear: must be a number of seconds`);
     if ("flip" in a && typeof a.flip !== "boolean") e.push(`${aid}.flip: must be true or false`);
+    if ("layer" in a && a.layer !== "front" && a.layer !== "back") e.push(`${aid}.layer: must be front or back`);
     if (a.actions !== undefined && !Array.isArray(a.actions)) {
       e.push(`${aid}.actions: must be a list`);
       continue;
@@ -132,6 +135,7 @@ export function validateTimeline(d: unknown): string[] {
     checkT(id, s);
     if (str(s.clip) === "") e.push(`${id}.clip: missing`);
     if (!KINDS.includes(str(s.kind))) e.push(`${id}.kind: must be music, sfx or voice`);
+    if (s.dur !== undefined && !(isNum(s.dur) && s.dur >= 0.5 && s.dur <= 30)) e.push(`${id}.dur: must be 0.5 to 30 seconds`);
   }
   return e;
 }

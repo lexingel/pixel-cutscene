@@ -59,7 +59,7 @@ test("request_uses_ref_image", async () => {
     ["GET", "https://api.pixellab.ai/v2/background-jobs/job_1"],
     ["GET", "https://api.pixellab.ai/v2/background-jobs/job_1"],
   ]);
-  expect(frames).toHaveLength(5);
+  expect(frames).toHaveLength(4); // a walk loops: the reference (frame 0) would stand still once a cycle
   // trimmed to one shared rect: same size, bottom-centred
   expect(new Set(frames.map((f) => `${f.w}x${f.h}`)).size).toBe(1);
   expect(frames[0].h).toBe(16);
@@ -110,7 +110,7 @@ test("results_unapproved", async () => {
   await genAnimInto(p, KEY, "hero", "idle", "a knight", await tk(), testIo);
   const idle = p.kit.chars.hero.anims.idle;
   expect(idle).toMatchObject({ approved: false, source: "pixellab", ref: refPath("hero") });
-  expect(idle.frames).toHaveLength(5);
+  expect(idle.frames).toHaveLength(4);
   expect(idle.frames.every((f) => p.files.has(f))).toBe(true);
 });
 
@@ -229,7 +229,7 @@ test("poll_blip_after_paid_post_keeps_waiting", async () => {
   // a 429 and a 500 on status reads do not throw away the paid job
   const calls = serve("job-accepted", 429, 500, "job-anim-completed");
   const frames = await genAnim(KEY, figure(32, 32, 11, 14), "walk", "a knight", await tk(), testIo);
-  expect(frames).toHaveLength(5);
+  expect(frames).toHaveLength(4);
   expect(calls.filter((c) => c.init.method === "POST")).toHaveLength(1);
 });
 
@@ -272,4 +272,20 @@ test("redo_replaces_an_approved_animation_only_when_asked", async () => {
   await genAnimInto(p, KEY, "hero", "walk", "a knight", await tk(), testIo, undefined, { replace: true });
   expect(p.kit.chars.hero.anims.walk.approved).toBe(false);
   expect(p.files.has("old_0.png")).toBe(false);
+});
+
+test("a_once_move_keeps_the_reference_as_its_first_frame", async () => {
+  serve("job-accepted", "job-anim-completed");
+  expect(await genAnim(KEY, figure(32, 32, 11, 14), "attack", "a knight", await tk(), testIo)).toHaveLength(5); // starts from the stand
+});
+
+test("a_background_is_made_at_canvas_size_when_it_fits", async () => {
+  const p = newProject("t"); // 480x270: under the 512x512 area limit
+  let calls = serve("create-image-pixen");
+  await genBackgroundInto(p, KEY, "cave", "a cave", await tk(), testIo);
+  expect(body(calls[0]).image_size).toEqual({ width: 480, height: 272 });
+  p.canvas = { W: 960, H: 540, exportScale: 2 };
+  calls = serve("create-image-pixen");
+  await genBackgroundInto(p, KEY, "cave2", "a cave", await tk(), testIo);
+  expect(body(calls[0]).image_size).toEqual({ width: 480, height: 272 }); // too big: half size, shown at 2x
 });

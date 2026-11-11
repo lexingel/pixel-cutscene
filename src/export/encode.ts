@@ -10,8 +10,10 @@ const avc = (w: number, h: number) => (w * h > 1920 * 1088 ? "avc1.640033" : "av
 const VP9 = "vp09.00.40.08";
 const AAC = { codec: "mp4a.40.2", sampleRate: 48000, numberOfChannels: 2, bitrate: 192_000 };
 const OPUS = { codec: "opus", sampleRate: 48000, numberOfChannels: 2, bitrate: 160_000 };
-// High on purpose: flat pixel art with hard edges must come back without ringing or smear.
-const bitrate = (w: number, h: number) => Math.round(w * h * 30 * 0.6); // about 37 Mbit/s at 1080p30
+export type Quality = "best" | "share";
+// Best is high on purpose: flat pixel art with hard edges comes back without ringing or smear (~37 Mbit/s at 1080p30).
+// Share is a quarter of that (~9 Mbit/s): fits Discord, itch and social uploads; flat areas still hold up.
+export const bitrate = (w: number, h: number, q: Quality = "best") => Math.round(w * h * 30 * (q === "share" ? 0.15 : 0.6));
 
 /** "mp4" when this browser can encode H.264 at the output size and AAC, else "webm" (VP9 + Opus). */
 export async function pickCodec(w = 1920, h = 1080): Promise<Container> {
@@ -58,7 +60,7 @@ async function room(enc: VideoEncoder | AudioEncoder, max = 2) {
 }
 
 /** A WebCodecs encoder pair writing into an in-memory MP4 or WebM. */
-export function openSink(kind: Container, w: number, h: number, fps: number, withAudio: boolean) {
+export function openSink(kind: Container, w: number, h: number, fps: number, withAudio: boolean, quality: Quality = "best") {
   if (w % 2 || h % 2) throw new Error(`Video needs an even width and height; this one is ${w}×${h}. Change the canvas size.`);
   const yuv = new Uint8Array((w * h * 3) / 2);
   let error: Error | null = null;
@@ -80,7 +82,7 @@ export function openSink(kind: Container, w: number, h: number, fps: number, wit
     muxer.addVideoChunk(c, m);
   }, error: fail });
   venc.configure({
-    codec: kind === "mp4" ? avc(w, h) : VP9, width: w, height: h, bitrate: bitrate(w, h), framerate: fps,
+    codec: kind === "mp4" ? avc(w, h) : VP9, width: w, height: h, bitrate: bitrate(w, h, quality), framerate: fps,
     ...(kind === "mp4" ? { avc: { format: "avc" as const } } : {}),
   });
   let aenc: AudioEncoder | null = null;

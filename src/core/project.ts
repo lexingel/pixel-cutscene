@@ -18,6 +18,21 @@ export type Project = {
   canvas: { W: number; H: number; exportScale: number };
 };
 
+/** Scene sizes, each a whole-number scale of 1920x1080: smaller = chunkier pixels and bigger characters. */
+export const CANVAS_SIZES = [
+  { W: 320, H: 180, exportScale: 6 },
+  { W: 480, H: 270, exportScale: 4 },
+  { W: 640, H: 360, exportScale: 3 },
+  { W: 960, H: 540, exportScale: 2 },
+] as const;
+
+/** Sets the scene size; only while nobody is placed yet (positions are scene pixels). Returns whether it changed. */
+export function setCanvas(p: Project, c: Project["canvas"]): boolean {
+  if (p.tl?.actors.length || p.tl?.fx.length) return false;
+  p.canvas = { W: c.W, H: c.H, exportScale: c.exportScale };
+  return true;
+}
+
 export const newProject = (name: string): Project => ({
   id: crypto.randomUUID(),
   name,
@@ -27,7 +42,7 @@ export const newProject = (name: string): Project => ({
   kit: { chars: {}, faces: {}, assets: {} },
   cast: {},
   files: new Map(),
-  canvas: { W: 960, H: 540, exportScale: 2 },
+  canvas: { ...CANVAS_SIZES[1] },
 });
 
 const pack = (d: Record<string, Uint8Array>) =>

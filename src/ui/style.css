@@ -188,7 +188,7 @@ a { color: inherit; }
 .needs > li:focus { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 
 .tracks {
-  --label: 92px; grid-column: 2; position: relative; max-height: 220px; overflow-y: auto;
+  --label: 92px; grid-column: 2; position: relative; max-height: max(220px, 45vh); overflow-y: auto;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); user-select: none;
 }
 .track { display: grid; grid-template-columns: var(--label) 1fr; min-height: 30px; border-top: 1px solid var(--line); }
@@ -223,7 +223,7 @@ a { color: inherit; }
   font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; line-height: 22px;
 }
 .clip {
-  position: absolute; top: 4px; bottom: 4px; min-width: 22px; display: flex; align-items: center; padding: 0 6px;
+  position: absolute; top: calc(4px + var(--k, 0) * 26px); height: 22px; min-width: 44px; display: flex; align-items: center; padding: 0 6px;
   font-size: 11.5px; color: #dfe6f2; background: #2f4157; border: 1px solid #415a78; border-radius: 4px;
   cursor: grab; overflow: hidden; white-space: nowrap;
 }
@@ -290,6 +290,7 @@ input[type=checkbox] { accent-color: var(--accent); }
 .card { display: grid; gap: 10px; align-content: start; justify-items: start; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
 .card h2 { margin: 0; }
 .card .row label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.card .row label[hidden] { display: none; }
 .card input, .card select {
   font: inherit; color: var(--text); background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 6px;
 }
@@ -306,6 +307,7 @@ input[type=checkbox] { accent-color: var(--accent); }
 .music-list { list-style: none; margin: 10px 0 0; padding: 0; max-height: 50vh; overflow: auto; }
 .music-list li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
 .music-list li:first-child { border-top: 0; }
+.fx-pick li[hidden] { display: none; }
 
 /* Cast: characters the scene asked for */
 .needed { margin-bottom: 24px; }
@@ -327,6 +329,8 @@ input[type=checkbox] { accent-color: var(--accent); }
   border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; resize: vertical;
 }
 .scene-text textarea:focus { border-color: var(--accent); outline: none; }
+.scene-size { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 550; }
+.scene-size .small { font-weight: 400; color: var(--muted); }
 
 /* Library drawer (left of Tweak) */
 .drawer {

@@ -19,3 +19,10 @@ test("medium_height_ignores_scaled_and_large", () => {
   expect(mediumHeight(p, (path) => imgs[path] ?? null)).toBe(40);
   expect(mediumHeight(newProject("e"), () => null)).toBe(48);
 });
+
+import { bgScale } from "../src/gen/pixellab";
+test("a_generated_background_is_drawn_at_the_scale_it_was_made_for", () => {
+  expect(bgScale({ W: 480, H: 270 })).toBe(1); // made 1:1, fits PixelLab's 512x512
+  expect(bgScale({ W: 640, H: 360 })).toBe(1);
+  expect(bgScale({ W: 960, H: 540 })).toBe(2); // made at half size
+});

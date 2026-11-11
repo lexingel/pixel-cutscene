@@ -4,13 +4,14 @@ export type Piece = { approved: boolean; source: "user" | "pixellab" | "elevenla
 export type SizeName = "tiny" | "small" | "medium" | "large" | "huge" | "gargantuan";
 export type Kit = {
   // voice: an ElevenLabs voice id; scale 2: frames were made at half size and are drawn doubled (Scale2x)
-  chars: Record<string, { view: "side"; anims: Record<string, Piece & { frames: string[] }>; voice?: string; scale?: 2; size?: SizeName }>;
-  faces: Record<string, Record<string, Piece & { path: string }>>;
+  chars: Record<string, { view: "side"; anims: Record<string, Piece & { frames: string[] }>; voice?: string; scale?: 2; size?: SizeName; /** a PixelLab character id: moves are posed from it */ pl?: string }>;
+  faces: Record<string, Record<string, Piece & { path: string; /** mouth shapes for lip-sync, closed first */ mouths?: string[] }>>;
   assets: Record<
     string,
     Piece & {
       kind: "bg" | "backdrop" | "fx" | "music" | "sfx" | "voice";
       path: string;
+      len?: number; // seconds, for audio: learnt when the clip is first decoded
       fx?: { cols: number; frames: number; fps: number; loop: boolean; dx: number; dy: number };
     }
   >;

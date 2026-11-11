@@ -82,11 +82,23 @@ describe("zoom", () => {
     row.forEach((v, x) => (x && v === row[x - 1] ? runs[runs.length - 1]++ : runs.push(1)));
     expect(runs.slice(1, -1).every((n) => n === 6)).toBe(true); // inner runs; the edges may be cut
   });
-  it("an animated zoom exported big moves smoothly, not in whole steps", () => {
+  it("mid-zoom every art pixel is still a whole number of output pixels", () => {
+    const k = 3, out = new Uint8ClampedArray(8 * k * 4 * k * 4);
+    zoomFrame(rainbow(), 1.55, 4, 2, k, out); // 1.55 at x3 rounds to 5 output pixels per art pixel
+    const row = Array.from({ length: 8 * k }, (_, x) => out[(2 * 8 * k + x) * 4]);
+    const runs: number[] = [];
+    row.forEach((v, x) => (x && v === row[x - 1] ? runs[runs.length - 1]++ : runs.push(1)));
+    expect(runs.slice(1, -1).every((n) => n === 5)).toBe(true);
+  });
+  it("an animated zoom exported big still moves in steps of one output pixel per art pixel", () => {
     const k = 3, a = new Uint8ClampedArray(8 * k * 4 * k * 4), b = new Uint8ClampedArray(a.length);
-    zoomFrame(rainbow(), 1.5, 4, 2, k, a);
-    zoomFrame(rainbow(), 1.6, 4, 2, k, b);
+    zoomFrame(rainbow(), 1.4, 4, 2, k, a);
+    zoomFrame(rainbow(), 1.7, 4, 2, k, b);
     expect(Array.from(a)).not.toEqual(Array.from(b));
+  });
+  it("the preview zooms at the same steps as the export", () => {
+    expect(zoomView(80, 40, 1.3, 40, 20, 1, 4).P).toBe(1.25); // drawn at x1, stepped like a x4 export
+    expect(zoomView(80, 40, 1.3, 40, 20, 4).P).toBe(5);
   });
   it("keeps the focus in the frame (the view never leaves the picture)", () => {
     const src: Img = { w: 4, h: 2, px: new Uint8ClampedArray(4 * 2 * 4) };

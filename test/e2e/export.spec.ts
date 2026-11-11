@@ -146,3 +146,45 @@ test("store loop: a range as native-size WebM and as a 15 fps GIF; cancel never 
   const gifInfo = probe(`${OUT}/loop.gif`);
   expect(gifInfo.frames).toBe(15);
 });
+
+test("export vertical share: a 1080x1920 slice for phones, named _vertical", async ({ page }) => {
+  test.setTimeout(180_000);
+  await openFixture(page, { extraAnim: "walk", big: true, sound: true });
+  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByLabel("Shape").selectOption("vertical");
+  await expect(page.getByTestId("full-size")).toContainText("1080×1920");
+  await expect(page.getByLabel("Slice centre x")).toBeVisible();
+  await page.getByLabel("Quality").selectOption("share");
+  expect(await exportAndSave(page, "Export video", "vertical.mp4")).toBe("Tweak fixture_vertical.mp4");
+  test.skip(!FFMPEG, NO_FFMPEG);
+  const { info } = probe(`${OUT}/vertical.mp4`);
+  expect(info).toMatch(/Video: h264.*1080x1920/);
+});
+
+test("export square: a 1080x1080 slice for posts, named _square", async ({ page }) => {
+  test.setTimeout(180_000);
+  await openFixture(page, { extraAnim: "walk", big: true, sound: true });
+  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByLabel("Shape").selectOption("square");
+  await expect(page.getByTestId("full-size")).toContainText("1080×1080");
+  await page.getByLabel("Shape").selectOption("wide");
+  await expect(page.getByLabel("Slice centre x")).toBeHidden();
+  await page.getByLabel("Shape").selectOption("square");
+  expect(await exportAndSave(page, "Export video", "square.mp4")).toBe("Tweak fixture_square.mp4");
+  test.skip(!FFMPEG, NO_FFMPEG);
+  const { info } = probe(`${OUT}/square.mp4`);
+  expect(info).toMatch(/Video: h264.*1080x1080/);
+});
+
+test("a square draft keeps its DRAFT mark (stamped after the slice is cut)", async ({ page }) => {
+  test.setTimeout(180_000);
+  await openFixture(page, { extraAnim: "walk", unapproved: true });
+  await page.getByRole("button", { name: "④ Export" }).click();
+  await page.getByLabel(/Draft/).check();
+  await page.getByLabel("Shape").selectOption("square");
+  expect(await exportAndSave(page, "Export video", "sqdraft.mp4")).toBe("Tweak fixture_square_DRAFT.mp4");
+  test.skip(!FFMPEG, NO_FFMPEG);
+  const f = frameAt(`${OUT}/sqdraft.mp4`, 0);
+  // 1080 tall: k 6, the D's top-left block at (1080 - 24 - 174, 24)
+  for (const v of [...f.subarray((27 * 1080 + 885) * 4, (27 * 1080 + 885) * 4 + 3)]) expect(v).toBeGreaterThan(255 - TOL);
+});

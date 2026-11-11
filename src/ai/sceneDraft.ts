@@ -1,5 +1,5 @@
 import { chat } from "./providers";
-import { buildScenePrompt } from "./scenePrompt";
+import { buildScenePrompt, type SceneScale } from "./scenePrompt";
 import type { PaidTicket } from "./confirm";
 import type { Keys } from "./keys";
 import type { Kit } from "../core/kit";
@@ -69,9 +69,10 @@ export async function draftScene(
   current: Timeline | null,
   ticket: PaidTicket,
   chatFn: typeof chat = chat,
+  scale: SceneScale = {},
 ): Promise<{ ok: true; tl: Timeline; cast: CastEntry[] } | { ok: false; error: string }> {
   if (!keys.ai) return { ok: false, error: "No AI key is set. Add one in Settings." };
-  const { system, user } = buildScenePrompt(kit, canvas, description, current);
+  const { system, user } = buildScenePrompt(kit, canvas, description, current, scale);
   try {
     let reply = await chatFn(keys.ai, system, user, ticket);
     let r = check(reply);

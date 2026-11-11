@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import miniText from "./fixtures/mini.json?raw";
-import { ANIM_FPS, pose, shotAt } from "../src/core/acting";
+import { ANIM_FPS, actionSpan, pose, shotAt } from "../src/core/acting";
 import { activeAudio } from "../src/core/audioPlan";
 import { camAt } from "../src/core/cam";
 import type { Img } from "../src/core/kit";
@@ -120,4 +120,47 @@ test("dust freezes the pose at its start", () => {
   const a = act({ actions: [{ id: "w", t: 0, do: "walk", to: [200, 250], dur: 2 }, { id: "d", t: 1, do: "dust", dur: 1.5 }] });
   const p0 = pose(a, 1, frames)!, p1 = pose(a, 1.9, frames)!;
   expect([p1.feet, p1.frame, p1.anim]).toEqual([p0.feet, p0.frame, p0.anim]);
+});
+
+test("an_anim_move_plays_once_then_stands_again", () => {
+  const atk = [img(), img(), img()];
+  const f = (_c: string, n: string) => (n === "attack" ? atk : n === "idle" ? idle : []);
+  const a = act({ actions: [{ id: "w", t: 0, do: "anim:attack" }] });
+  expect(pose(a, 2 / ANIM_FPS + 0.001, f)!.img).toBe(atk[2]);
+  const after = pose(a, 3 / ANIM_FPS + 0.001, f)!;
+  expect(after.anim).toBe("idle");
+  expect(after.img).toBe(idle[0]); // the stand starts over where the move ended
+});
+test("an_anim_move_with_a_duration_holds_its_last_frame_until_then", () => {
+  const atk = [img(), img(), img()];
+  const f = (_c: string, n: string) => (n === "attack" ? atk : n === "idle" ? idle : []);
+  const a = act({ actions: [{ id: "w", t: 0, do: "anim:attack", dur: 1 }] });
+  expect(pose(a, 0.9, f)!.img).toBe(atk[2]);
+  expect(pose(a, 1.01, f)!.anim).toBe("idle");
+});
+test("a_death_stays_down", () => {
+  const die = [img(), img()];
+  const f = (_c: string, n: string) => (n === "death" ? die : n === "idle" ? idle : []);
+  const a = act({ actions: [{ id: "w", t: 0, do: "anim:death" }] });
+  expect(pose(a, 5, f)!.img).toBe(die[1]);
+});
+test("a_bar_without_a_duration_is_as_long_as_what_plays", () => {
+  const f = (_c: string, n: string) => (n === "attack" ? [img(), img(), img()] : n === "hurt" ? hurt : []);
+  expect(actionSpan({ id: "a", t: 0, do: "anim:attack" }, "w", f)).toBeCloseTo(3 / ANIM_FPS);
+  expect(actionSpan({ id: "a", t: 0, do: "anim:attack", dur: 2 }, "w", f)).toBe(2);
+  expect(actionSpan({ id: "a", t: 0, do: "hurt" }, "w", f)).toBeCloseTo(2 / ANIM_FPS);
+  expect(actionSpan({ id: "a", t: 0, do: "say", text: "Hi" }, "w", f)).toBe(2);
+  expect(actionSpan({ id: "a", t: 0, do: "walk", dur: 3 }, "w", f)).toBe(3);
+  expect(actionSpan({ id: "a", t: 0, do: "idle" }, "w", f)).toBeUndefined();
+});
+
+test("a walk faces the way it goes and keeps facing it; a move (slide) does not turn", () => {
+  const w = act({ actions: [{ id: "a", t: 0, do: "walk", to: [40, 250], dur: 1 }, { id: "b", t: 2, do: "walk", to: [300, 250], dur: 1 }] });
+  expect(pose(w, 0.5, frames)!.flip).toBe(true); // going left
+  expect(pose(w, 1.5, frames)!.flip).toBe(true); // stays turned after
+  expect(pose(w, 2.5, frames)!.flip).toBe(false); // going right again
+  const f = act({ flip: true, actions: [{ id: "a", t: 0, do: "walk", to: [100, 300], dur: 1 }] });
+  expect(pose(f, 0.5, frames)!.flip).toBe(true); // straight down: keeps its facing
+  const m = act({ actions: [{ id: "a", t: 0, do: "move", to: [40, 250], dur: 1 }] });
+  expect(pose(m, 0.5, frames)!.flip).toBe(false); // knocked back: still faces forward
 });

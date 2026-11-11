@@ -61,9 +61,13 @@ export function crop(img: Img, x: number, y: number, w: number, h: number): Img 
  * With k > 1 every art pixel becomes a whole number of output pixels (z is rounded to steps of 1/k);
  * the view is pulled in so it never shows past the picture's edges.
  */
-/** The view a zoom shows of a w x h frame drawn at k output pixels per pixel: its centre (clamped so it stays in the picture) and output pixels per art pixel. */
-export function zoomView(w: number, h: number, z: number, fx: number, fy: number, k: number): { cx: number; cy: number; P: number } {
-  const P = Math.max(1, k * z); // whole at a whole zoom, fractional (smooth) while zooming
+/**
+ * The view a zoom shows of a w x h frame drawn at k output pixels per pixel: its centre (clamped so it stays in the
+ * picture) and output pixels per art pixel. The zoom moves in steps of 1/steps (default k), so in the export every art
+ * pixel is a whole number of output pixels, also mid-zoom; the preview (k 1) passes the export's scale to step alike.
+ */
+export function zoomView(w: number, h: number, z: number, fx: number, fy: number, k: number, steps = k): { cx: number; cy: number; P: number } {
+  const P = Math.max(1, (k * Math.round(z * steps)) / steps);
   const cl = (c: number, n: number) => { const half = (n * k) / (2 * P); return Math.min(Math.max(c, half), n - half); };
   return { cx: cl(fx, w), cy: cl(fy, h), P };
 }
@@ -71,9 +75,9 @@ export function zoomView(w: number, h: number, z: number, fx: number, fy: number
 export const unzoom = (v: { cx: number; cy: number; P: number }, X: number, Y: number, w: number, h: number, k: number) =>
   ({ x: v.cx + (X - (w * k) / 2) / v.P, y: v.cy + (Y - (h * k) / 2) / v.P });
 
-export function zoomFrame(src: Img, z: number, fx: number, fy: number, k: number, out: Uint8ClampedArray): void {
+export function zoomFrame(src: Img, z: number, fx: number, fy: number, k: number, out: Uint8ClampedArray, steps = k): void {
   const W = src.w * k, H = src.h * k;
-  const { cx, cy, P } = zoomView(src.w, src.h, z, fx, fy, k);
+  const { cx, cy, P } = zoomView(src.w, src.h, z, fx, fy, k, steps);
   const s = new Uint32Array(src.px.buffer, src.px.byteOffset, src.w * src.h);
   const d = new Uint32Array(out.buffer, out.byteOffset, W * H);
   const col = Array.from({ length: W }, (_, X) => Math.min(src.w - 1, Math.max(0, Math.floor(cx + (X + 0.5 - W / 2) / P))));

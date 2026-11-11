@@ -10,9 +10,12 @@ import { decode, playing } from "./cast";
 import { toast } from "./dialogs";
 import { find, setMove, type EditResult } from "./timelineEditor";
 import { pickTrack } from "./music";
+import { pickFx } from "./fxPicker";
+import { useLibraryFx } from "../core/fxLibrary";
 import { audioPlan, elevenKey, generateAudio } from "./eleven";
 import { busy, generate, genAction, genPlan, pixellabKey, words, NO_KEY } from "./pixellab";
 import { isRunning } from "./inflight";
+import { generateAll, planAll } from "./genAll";
 
 // moves the user can add before they exist: they land here to be generated
 const GENERATABLE = ["anim:attack", "anim:breathe"];
@@ -50,6 +53,7 @@ export function targetOf(tl: Timeline, r: Row): Target | null {
 
 const ext = (name: string) => name.match(/\.[A-Za-z0-9]+$/)?.[0].toLowerCase() ?? "";
 const isAudio = (t: Target) => t.kind === "asset" && GEN_AUDIO.includes(t.asset);
+export const isAudioTarget = (t: Target): boolean => isAudio(t);
 
 // Stores the user's own files for a target: approved, source "user".
 export async function useOwnFiles(p: Project, t: Target, files: File[]): Promise<void> {
@@ -120,6 +124,20 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
   const list = host.querySelector("ul")!;
   const hint = pixellabKey() || elevenKey() ? "Generate a piece, upload your own files, or change the action." : `${NO_KEY} Or upload your own files, or change the action.`;
   if (rows.length) list.before(Object.assign(document.createElement("p"), { className: "hint", textContent: hint }));
+  const all = planAll(p);
+  const n = all.pixellab.length + all.eleven.length;
+  if (n > 1) {
+    const b = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: `Generate all (${n})` });
+    const cost = [
+      all.pixellab.length && `PixelLab ${all.gens.min === all.gens.max ? `about ${all.gens.min}` : `${all.gens.min}-${all.gens.max}`} generations`,
+      all.eleven.length && `ElevenLabs about ${all.credits} credits`,
+    ].filter(Boolean).join(", ");
+    b.title = `${cost}${all.skipped ? `; ${all.skipped} more need something first` : ""}`;
+    b.setAttribute("data-testid", "gen-all");
+    b.onclick = () => void busy(host, () => generateAll(p, kitChanged));
+    list.before(Object.assign(document.createElement("p"), { className: "small row wrap gen-all", textContent: `${cost}. ` }));
+    host.querySelector(".gen-all")!.append(b);
+  }
   if (!rows.length) {
     list.innerHTML = `<li class="done small">Nothing missing. Every piece is in and approved, so this is ready to export.</li>`;
     return;
@@ -167,6 +185,22 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
       };
       up.append(inp);
       acts.append(up);
+    }
+    if (t?.kind === "asset" && t.asset === "fx") {
+      const lib = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: "Pick from library" });
+      lib.onclick = async () => {
+        const id = await pickFx(`An effect for ${words(r.what)}`);
+        if (!id) return;
+        lib.disabled = true;
+        try {
+          apply(await useLibraryFx(p, tl, r.used_by, id)); // bakes it into the kit too
+          kitChanged();
+        } catch {
+          lib.disabled = false;
+          toast("Could not prepare that effect. Try another one.", "error");
+        }
+      };
+      acts.append(lib);
     }
     if (t?.kind === "asset" && t.asset === "music") {
       const lib = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: "Pick from library" });

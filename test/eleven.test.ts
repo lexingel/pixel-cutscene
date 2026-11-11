@@ -151,3 +151,11 @@ test("plan_names_a_speaker_missing_from_the_cast", () => {
   p.tl = { name: "t", duration: 5, shots: [], actors: [], fx: [], audio: [{ id: "vo1", t: 1, clip: "vo", kind: "voice", line: "Hi", speaker: "ghost" }] };
   expect(audioPlan(p, "vo1", "voice").why).toBe("ghost is not in the cast. Pick a speaker in the inspector.");
 });
+test("a_sound_is_made_as_long_as_its_entry_asks", () => {
+  vi.stubGlobal("localStorage", { getItem: () => JSON.stringify({ elevenlabs: KEY }) });
+  const p = newProject("t");
+  p.tl = { name: "t", duration: 5, shots: [], actors: [], fx: [], audio: [{ id: "s1", t: 1, clip: "sfx_door_creak", kind: "sfx" }] };
+  expect(audioPlan(p, "s1", "sfx").seconds).toBe(2);
+  p.tl.audio[0].dur = 4.5;
+  expect(audioPlan(p, "s1", "sfx").seconds).toBe(4.5);
+});

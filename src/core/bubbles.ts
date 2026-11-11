@@ -2,7 +2,7 @@
 // frame with the pixelfx 5x7 capitals (MIT, vendor/pixelfx), plus hand-made lower case and the Turkish letters.
 import { FONTS } from "../../vendor/pixelfx/src/core/font.js";
 import { actorName } from "./labels";
-import type { Img } from "./kit";
+import type { Img, Kit } from "./kit";
 import type { Timeline } from "./types";
 
 export type BubbleStyle = "bubble" | "box";
@@ -14,8 +14,9 @@ export const LINE = 11; // line pitch: 7 rows + room for accents above and cedil
 /** How long a line stays up: 2 to 8 s by its length. */
 export const sayDur = (text: string) => Math.round(Math.min(8, Math.max(2, 1.2 + 0.06 * text.length)) * 30) / 30;
 
-/** The bubbles showing at t, in timeline order (say actions, then voice lines). */
-export function bubblesAt(tl: Timeline, t: number): Bubble[] {
+/** The bubbles showing at t, in timeline order (say actions, then voice lines). A voice line's bubble lasts as long as
+ * its clip plays (kit asset `len`, once known), never shorter than the time to read it. */
+export function bubblesAt(tl: Timeline, t: number, kit?: Kit): Bubble[] {
   const out: Bubble[] = [];
   const add = (t0: number, dur: number, text: string, style: BubbleStyle, speaker: string, actor?: string) => {
     if (t >= t0 && t < t0 + dur && text) out.push({ actor, speaker, text, style, shown: Math.min(text.length, Math.floor((t - t0) * REVEAL + 1e-6)) });
@@ -31,7 +32,7 @@ export function bubblesAt(tl: Timeline, t: number): Bubble[] {
   for (const e of tl.audio) {
     if (e.kind !== "voice" || !e.line || !e.speaker || e.bubble === "none") continue;
     const actor = tl.actors.find((a) => a.char === e.speaker && (a.appear === undefined || t >= a.appear));
-    add(e.t, sayDur(e.line), e.line, actor ? e.bubble ?? "bubble" : "box", e.speaker, actor?.id);
+    add(e.t, Math.max(sayDur(e.line), kit?.assets[e.clip]?.len ?? 0), e.line, actor ? e.bubble ?? "bubble" : "box", e.speaker, actor?.id);
   }
   return out;
 }

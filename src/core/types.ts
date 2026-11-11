@@ -38,6 +38,7 @@ export interface Actor {
   y: number;
   flip?: boolean;
   appear?: number;
+  layer?: "front" | "back"; // drawn over (under) every other actor whatever their feet y
   actions: Action[];
   locked?: boolean;
 }
@@ -54,6 +55,7 @@ export interface AudioEntry {
   speaker?: string; // optional: the character whose kit voice speaks this line
   bubble?: "bubble" | "box" | "none"; // voice: how the line shows on screen (default bubble over the speaker)
   vol_db?: number;
+  dur?: number; // sfx: how long a generated sound is made (0.5-30 s, default 2)
   locked?: boolean;
 }
 
@@ -62,6 +64,7 @@ export interface Timeline {
   duration: number;
   kit?: string;
   closeup_scale?: number;
+  shadows?: boolean; // a ground shadow under every actor in wide shots
   shots: Shot[];
   actors: Actor[];
   fx: FxEntry[];

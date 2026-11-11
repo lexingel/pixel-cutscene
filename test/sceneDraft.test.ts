@@ -149,3 +149,23 @@ test("redraft_invalid_after_keepLocked_keeps_current", async () => {
   else expect(r.error).toMatch(/locked/i);
   expect(JSON.stringify(current)).toBe(before);
 });
+
+test("prompt_teaches_the_whole_vocabulary", () => {
+  const { system } = buildScenePrompt(kit, canvas, "a cave", null);
+  for (const w of ['"say"', '"text"', '"box"', '"zoom"', '"actor"', '"flash"', '"shake"', '"ground"', '"speaker"', '"bubble"', '"reach"', '"angle"', "anim:attack", "anim:breathe"])
+    expect(system, w).toContain(w);
+});
+test("prompt_names_library_effects_by_category", () => {
+  const { system } = buildScenePrompt(kit, canvas, "a cave", null);
+  expect(system).not.toMatch(/^moves: /m); // whole attacks with their own stock fighter
+  expect(system).toMatch(/fire: [^\n]*fire-breath/);
+});
+test("prompt_gives_character_sizes_and_the_feet_line", () => {
+  const { system } = buildScenePrompt(kit, canvas, "a cave", null, { sizes: { [Object.keys(kit.chars)[0]]: { w: 32, h: 48 } }, feetY: 500 });
+  expect(system).toMatch(/48 px tall/);
+  expect(system).toMatch(/feet[^\n]*500/i);
+});
+test("the_example_uses_the_new_vocabulary", () => {
+  const s = JSON.stringify(EXAMPLE);
+  for (const w of ['"say"', '"zoom"', '"shake"', '"ground"', "anim:"]) expect(s, w).toContain(w);
+});

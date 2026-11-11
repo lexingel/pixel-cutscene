@@ -1,8 +1,26 @@
 import { round } from "./cam";
-import type { Actor, Shot, Timeline } from "./types";
+import type { Action, Actor, Shot, Timeline } from "./types";
+import { sayDur } from "./bubbles";
 import type { Img } from "./kit";
 
 export const ANIM_FPS = 12;
+
+// a move that ends lying down (or asleep) stays on its last frame instead of standing up again
+const STAYS = /death|die|dead|faint|sleep|knock/i;
+
+type Frames = (char: string, anim: string) => Img[];
+
+/** How long an action plays on the timeline: its "dur", or for moves without one, what they actually show. */
+export function actionSpan(a: Action, char: string, frames: Frames): number | undefined {
+  if (a.do.startsWith("anim:")) {
+    const n = frames(char, a.do.slice(5)).length / ANIM_FPS;
+    return Math.max(a.dur ?? 0, n) || undefined;
+  }
+  if (a.dur !== undefined) return a.dur;
+  if (a.do === "hurt") return (frames(char, "hurt").length || 2) / ANIM_FPS;
+  if (a.do === "say") return sayDur(a.text ?? "");
+  return undefined;
+}
 
 export type Pose = {
   img: Img | null;
@@ -23,7 +41,7 @@ export type Pose = {
  * `frames` returns a character's frames for an anim; an empty array means missing.
  * Returns null before the actor appears.
  */
-export function pose(actor: Actor, t: number, frames: (char: string, anim: string) => Img[]): Pose | null {
+export function pose(actor: Actor, t: number, frames: Frames): Pose | null {
   if (actor.appear !== undefined && t < actor.appear) return null;
   const sorted = [...actor.actions].sort((a, b) => a.t - b.t);
   const di = sorted.findIndex((a) => a.do === "dust" && a.t <= t);
@@ -53,6 +71,7 @@ export function pose(actor: Actor, t: number, frames: (char: string, anim: strin
       case "walk":
       case "move": {
         const [tx, ty] = act.to ?? [fx, fy];
+        if (what === "walk" && tx !== fx) flip = tx < fx; // a walk faces the way it goes (sprites face right)
         if (live) {
           fx += (tx - fx) * u;
           fy += (ty - fy) * u;
@@ -89,7 +108,12 @@ export function pose(actor: Actor, t: number, frames: (char: string, anim: strin
         anim = "idle"; animT = t - t0; once = false;
         break;
       default:
-        if (what.startsWith("anim:")) { anim = what.slice(5); animT = t - t0; once = true; }
+        if (what.startsWith("anim:")) {
+          // plays once, holds its last frame through "dur", then stands again (a death stays down)
+          const name = what.slice(5), end = t0 + Math.max(dur, frames(actor.char, name).length / ANIM_FPS);
+          if (t < end || STAYS.test(name) || !frames(actor.char, name).length) { anim = name; animT = t - t0; once = true; }
+          else { anim = "idle"; animT = t - end; once = false; }
+        }
     }
   }
   let fr = frames(actor.char, anim);

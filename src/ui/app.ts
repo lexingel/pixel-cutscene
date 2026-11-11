@@ -118,12 +118,21 @@ export function mountApp(root: HTMLElement): void {
     root.querySelector(".projects")!.append(
       ...list.map(({ id, name, updated }) => {
         const li = document.createElement("li");
-        li.innerHTML = `<a class="proj"><strong></strong><span class="small"></span></a><button class="btn" type="button">Download zip</button><button class="btn quiet danger" type="button">Delete</button>`;
+        li.innerHTML = `<a class="proj"><strong></strong><span class="small"></span></a><button class="btn" type="button">Download zip</button><button class="btn quiet" type="button">Duplicate</button><button class="btn quiet danger" type="button">Delete</button>`;
         const a = li.querySelector("a")!;
         a.href = `#/p/${id}`;
         a.querySelector("strong")!.textContent = name;
         a.querySelector(".small")!.textContent = `Edited ${new Date(updated).toLocaleString()}`;
-        const [zip, del] = li.querySelectorAll("button");
+        const [zip, dup, del] = li.querySelectorAll("button");
+        dup.onclick = async () => {
+          if (dup.disabled) return;
+          dup.disabled = true; // a double click makes one copy
+          const p = await loadProject(id);
+          if (!p) return void (dup.disabled = false);
+          const tl = p.tl && { ...p.tl, name: `${p.tl.name}_copy` }; // its own Godot output folder
+          await saveProject({ ...p, id: crypto.randomUUID(), name: `${name} copy`, tl, files: new Map(p.files) });
+          await showHome();
+        };
         zip.onclick = async () => {
           const p = await loadProject(id);
           if (p) await downloadZip(p);

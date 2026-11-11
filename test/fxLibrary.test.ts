@@ -74,3 +74,33 @@ describe("reach", () => {
     expect("reach" in back.tl.fx[0]).toBe(false);
   });
 });
+
+import { bakeDraftFx } from "../src/core/fxLibrary";
+describe("a drafted scene's library effects", () => {
+  test("are_baked_and_the_entries_point_at_the_baked_asset", async () => {
+    const p = newProject("t");
+    p.kit.assets.mine = { approved: true, source: "user", kind: "fx", path: "fx/mine.png" };
+    p.tl = {
+      name: "t", duration: 5, shots: [], actors: [], audio: [],
+      fx: [
+        { id: "f1", t: 1, fx: "fire/fire-breath", x: 0, y: 0, angle: 20, reach: 2 },
+        { id: "f2", t: 2, fx: "mine", x: 0, y: 0 },
+        { id: "f3", t: 3, fx: "made_up_thing", x: 0, y: 0 },
+      ],
+    } as Timeline;
+    expect(await bakeDraftFx(p, encode)).toBe(1);
+    expect(p.tl.fx.map((f) => f.fx)).toEqual(["fire-breath_a20_r20", "mine", "made_up_thing"]);
+    expect(p.kit.assets["fire-breath_a20_r20"]).toMatchObject({ source: "pixelfx", ref: "fire/fire-breath", approved: true });
+  });
+});
+
+import { useLibraryFx } from "../src/core/fxLibrary";
+test("a_missing_effect_can_be_swapped_for_a_library_one", async () => {
+  const p = newProject("t");
+  const tl = { name: "t", duration: 5, shots: [], actors: [], audio: [], fx: [{ id: "f1", t: 1, fx: "dragon_fire", x: 0, y: 0 }] } as Timeline;
+  const r = await useLibraryFx(p, tl, "f1", "fire/fire-breath", encode);
+  expect(r.error).toBeUndefined();
+  expect(r.tl.fx[0].fx).toBe("fire-breath");
+  expect(p.kit.assets["fire-breath"]).toMatchObject({ approved: true, ref: "fire/fire-breath" });
+  expect(tl.fx[0].fx).toBe("dragon_fire"); // a new timeline, for undo
+});

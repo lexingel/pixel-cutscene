@@ -5,7 +5,7 @@ import { camAt } from "../src/core/cam";
 import { newProject } from "../src/core/project";
 import { swaps, targetOf, useOwnFiles } from "../src/ui/approvals";
 import {
-  History, addAction, addEntry, deleteEntry, moveEntry, moveShotEdge, resizeEntry, setCamera, setField, splitShot,
+  History, addAction, addEntry, deleteEntry, lanes, moveEntry, moveShotEdge, playhead, resizeEntry, setCamera, setField, splitShot,
 } from "../src/ui/timelineEditor";
 
 const tl = (): Timeline => ({
@@ -180,4 +180,41 @@ test("approvals_use_own_files", async () => {
   await useOwnFiles(p, { kind: "asset", id: "line1", asset: "voice" }, [new File(["a"], "take.ogg")]);
   expect(p.kit.assets.line1).toEqual({ approved: true, source: "user", kind: "voice", path: "audio/line1.ogg" });
   // the fx branch decodes the PNG (createImageBitmap), so it is left to the browser
+});
+
+test("deleting_an_actor_stops_zooms_following_them", () => {
+  const t = tl();
+  (t.shots[1] as any).zoom = { from: 1, to: 2, x: 40, y: 90, actor: "hero1" };
+  const d = deleteEntry(t, "hero1");
+  expect(d.tl.actors).toHaveLength(0);
+  expect((d.tl.shots[1] as any).zoom).toEqual({ from: 1, to: 2, x: 40, y: 90 }); // keeps its spot
+});
+
+test("a_zoom_following_no_actor_is_an_error", () => {
+  const t = tl();
+  (t.shots[1] as any).zoom = { from: 1, to: 2, x: 40, y: 90, actor: "ghost" };
+  expect(validateTimeline(t)).toEqual(["s2.zoom.actor: no actor ghost"]);
+});
+
+test("shadows_and_layers_are_checked", () => {
+  const t: any = tl();
+  t.shadows = "yes";
+  t.actors[0].layer = "middle";
+  expect(validateTimeline(t)).toEqual(["(root).shadows: must be true or false", "hero1.layer: must be front or back"]);
+  t.shadows = true;
+  t.actors[0].layer = "back";
+  expect(validateTimeline(t)).toEqual([]);
+});
+
+test("playback_shows_whole_frames_only", () => {
+  expect(playhead(1, 50)).toBe(31 / 30); // 1.05 s is inside frame 31
+  expect(playhead(0, 999)).toBe(29 / 30);
+  expect(playhead(0, 1000)).toBe(1);
+});
+
+test("overlapping_bars_stack_in_lanes", () => {
+  // hurt at 2 (short) then dust at 2.1: the second goes under; a later bar reuses the first lane
+  expect(lanes([{ t: 2, len: 0.1 }, { t: 2.1, len: 1 }, { t: 4, len: 1 }], 0.5)).toEqual([0, 1, 0]);
+  expect(lanes([{ t: 0, len: 3 }, { t: 1, len: 1 }, { t: 1.5, len: 1 }], 0.1)).toEqual([0, 1, 2]);
+  expect(lanes([{ t: 3, len: 1 }, { t: 0, len: 1 }], 0.1)).toEqual([0, 0]); // any order
 });

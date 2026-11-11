@@ -3,6 +3,7 @@ import { camAt, round } from "./cam";
 import { crumble, hashString } from "./dust";
 import { charFrames } from "./frames";
 import { assetStatus, faceStatus, type Img, type Kit } from "./kit";
+import { mouthAt } from "./mouth";
 import { blit, crop, fade, fill } from "./raster";
 import { bubblesAt, drawBox, drawBubble } from "./bubbles";
 import type { FxEntry, Shot, Timeline } from "./types";
@@ -14,6 +15,7 @@ export type RenderInput = {
   draft: boolean;
   W: number;
   H: number;
+  mark?: boolean; // false: a draft is stamped later (an exported slice gets its mark after the cut)
 };
 
 // 5x7 glyphs for the watermark, one string per row.
@@ -62,6 +64,28 @@ function mirror(img: Img): Img {
 
 type FxLive = FxEntry & { dur?: number; hold?: boolean }; // stage.gd also reads dur and hold
 
+const LAYER: Record<string, number> = { back: -1, "": 0, front: 1 };
+export const SHADOW_ALPHA = 0.35;
+/** A ground shadow's half width and half height for a sprite this tall (constant per character, so it never flickers). */
+export const shadowSize = (h: number) => {
+  const rx = Math.max(3, Math.round(h / 8));
+  return { rx, ry: Math.max(1, Math.round(rx / 3)) };
+};
+/** A flat pixel oval darkening the ground under feet (x, y); `k` fades it (a crumbling actor). Mirrors stage.gd. */
+function shadow(out: Img, x: number, y: number, h: number, k: number): void {
+  const { rx, ry } = shadowSize(h);
+  const keep = 1 - SHADOW_ALPHA * k;
+  for (let dy = -ry; dy <= ry; dy++) {
+    const half = Math.round(rx * Math.sqrt(1 - (dy / (ry + 1)) ** 2));
+    const yy = y + dy;
+    if (yy < 0 || yy >= out.h) continue;
+    for (let xx = Math.max(0, x - half); xx <= Math.min(out.w - 1, x + half); xx++) {
+      const i = (yy * out.w + xx) * 4;
+      for (let c = 0; c < 3; c++) out.px[i + c] = Math.round(out.px[i + c] * keep);
+    }
+  }
+}
+
 /** One frame at time t, a pure function of (timeline, kit, t). Mirrors stage.gd seek(). */
 export function renderFrame(p: RenderInput, t: number, out: Img): void {
   const { tl, kit, draft } = p;
@@ -81,12 +105,14 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
       const k = Math.max(Math.ceil(p.W / bd.w), Math.ceil(p.H / bd.h)); // smallest whole scale that covers
       blit(out, bd, Math.trunc((p.W - bd.w * k) / 2), Math.trunc((p.H - bd.h * k) / 2), k);
     }
-    const face = faceStatus(kit, shot.face, shot.expr, draft, has) === "ok" ? p.img(kit.faces[shot.face][shot.expr].path) : null;
+    const fp = faceStatus(kit, shot.face, shot.expr, draft, has) === "ok" ? kit.faces[shot.face][shot.expr] : null;
+    const m = fp?.mouths?.length ? mouthAt(tl, shot.face, t, fp.mouths.length) : null;
+    const face = fp ? (m !== null && p.img(fp.mouths![m])) || p.img(fp.path) : null;
     if (face) {
       const k = tl.closeup_scale ?? 3;
       blit(out, face, Math.trunc((p.W - face.w * k) / 2), p.H - face.h * k, k);
     }
-    for (const b of bubblesAt(tl, t)) drawBox(out, b); // a close-up has no head to point at
+    for (const b of bubblesAt(tl, t, kit)) drawBox(out, b); // a close-up has no head to point at
   } else {
     const cam = camAt(shot.camera, t);
     const into = t - shot.start, sk = shot.shake ?? 0;
@@ -100,9 +126,10 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
 
     const frames = charFrames(kit, p.img, draft, has);
     const posed = tl.actors
-      .map((a) => ({ id: a.id, q: pose(a, t, frames) }))
+      .map((a) => ({ id: a.id, layer: a.layer, q: pose(a, t, frames) }))
       .filter((e) => e.q !== null && e.q.img !== null)
-      .sort((a, b) => a.q!.feet.y - b.q!.feet.y); // stable: ties keep timeline order
+      .sort((a, b) => LAYER[a.layer ?? ""] - LAYER[b.layer ?? ""] || a.q!.feet.y - b.q!.feet.y); // stable: ties keep timeline order
+    if (tl.shadows) for (const { q } of posed) shadow(out, q!.feet.x - cam.x, q!.feet.y - cam.y, q!.img!.h, 1 - (q!.dust ?? 0));
     for (const { id, q } of posed) {
       const x = q!.drawX + q!.shake - cam.x, y = q!.drawY - cam.y;
       let img = q!.img!;
@@ -115,7 +142,7 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
 
     for (const f of tl.fx) drawFx(p, f as FxLive, t, cam, out, asset);
     // speech over everything in the scene: a bubble over the speaker's head (top of the sprite, else 40 px over the feet)
-    for (const b of bubblesAt(tl, t)) {
+    for (const b of bubblesAt(tl, t, kit)) {
       const a = b.style === "bubble" && b.actor ? tl.actors.find((x) => x.id === b.actor) : undefined;
       const q = a ? pose(a, t, frames) : null;
       if (q && !q.gone) drawBubble(out, b, q.feet.x - cam.x, (q.img ? q.drawY : q.feet.y - 40) - cam.y);
@@ -129,7 +156,7 @@ export function renderFrame(p: RenderInput, t: number, out: Img): void {
   fade(out, Math.min(Math.max(aIn, aOut, 0), 1));
   const aFlash = (shot.flash ?? 0) > 0 ? 1 - into / shot.flash! : 0;
   if (aFlash > 0) for (let j = 0; j < out.px.length; j += 4) for (let c = 0; c < 3; c++) out.px[j + c] += (255 - out.px[j + c]) * aFlash;
-  if (draft && !frameZoom(p, t)) watermark(out); // a zoomed frame gets its mark after the zoom (exporter), at its normal size
+  if (draft && p.mark !== false && !frameZoom(p, t)) watermark(out); // a zoomed frame gets its mark after the zoom (exporter), at its normal size
 }
 
 /** The zoom at t in this shot (1 when it has none). */

@@ -4,11 +4,41 @@ import { KNOWN_ANIMS, checkSprite, downscale, guessAnims } from "../core/spriteI
 import { assignFrame, baseName as base, charDir, dropChar, freePath, pendingChars, unassigned } from "../core/cast";
 import { confirmDialog, toast } from "./dialogs";
 import { refPath } from "../gen/pixellab";
+import { cleanAnim, type CleanReport } from "../core/cleanup";
 import { NO_KEY, generate, genPlan, pixellabKey, renderGenChar } from "./pixellab";
 
 type Picked = { rel: string; file: File }; // rel = path inside the character folder
 
 const UNASSIGNED = "_unassigned";
+// a frame as it was before Clean up: kept in the project (and its zip) so Undo outlives a reload
+export const origPath = (f: string) => `orig/${f}`;
+// ponytail: guessed from the name; a flying or jumping move must not be pulled down to the feet line
+const AIRBORNE = /jump|fly|leap|hover|fall|float|dust/i;
+
+const cleanSummary = (r: CleanReport) =>
+  [
+    r.specks && `${r.specks} stray pixel${r.specks === 1 ? "" : "s"} fixed`,
+    r.snapped && `${r.snapped} off-palette pixel${r.snapped === 1 ? "" : "s"} matched to idle`,
+    r.lowered && `${r.lowered} floating frame${r.lowered === 1 ? "" : "s"} set on the ground`,
+    r.pinholes && `${r.pinholes} pinhole${r.pinholes === 1 ? "" : "s"} filled`,
+    r.alpha && `${r.alpha} soft edge pixel${r.alpha === 1 ? "" : "s"} made solid`,
+  ].filter(Boolean).join(", ");
+
+/** Cleans one animation's frames in place (against the idle when it is another anim). Returns what changed, or "" when nothing did. */
+export async function cleanUp(p: Project, char: string, anim: string): Promise<string> {
+  const c = p.kit.chars[char], frames = c.anims[anim].frames.filter((f) => p.files.has(f));
+  const idle = anim !== "idle" ? (c.anims.idle?.frames ?? []).filter((f) => p.files.has(f)) : [];
+  const [imgs, ref] = await Promise.all([Promise.all(frames.map((f) => decode(p.files.get(f)!))), Promise.all(idle.map((f) => decode(p.files.get(f)!)))]);
+  const r = cleanAnim(imgs, ref.length ? ref : null, !AIRBORNE.test(anim));
+  const said = cleanSummary(r.report);
+  if (!said) return "";
+  const blobs = await Promise.all(r.frames.map(encode));
+  frames.forEach((f, i) => {
+    if (!p.files.has(origPath(f))) p.files.set(origPath(f), p.files.get(f)!);
+    p.files.set(f, blobs[i]);
+  });
+  return said;
+}
 
 export async function decode(b: Blob): Promise<Img> {
   const bmp = await createImageBitmap(b);
@@ -307,6 +337,28 @@ export function renderCast(root: HTMLElement, p: Project, changed: () => void, g
           else redo.disabled = false;
         };
         row.querySelector(".anim-label")!.append(redo);
+      }
+      const clean = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: "Clean up" });
+      clean.title = "Fix stray pixels and pinholes, match colours to the idle, and set floating frames on the ground. Only removes, moves or recolours pixels.";
+      clean.setAttribute("aria-label", `Clean up ${name} ${anim}`);
+      clean.onclick = async () => {
+        clean.disabled = true;
+        const said = await cleanUp(p, name, anim).catch(() => null);
+        if (said === null) toast(`Could not clean ${anim}: a frame is not a readable PNG.`, "error");
+        else toast(said ? `${name} ${anim}: ${said}.` : `${name} ${anim} is already clean.`);
+        if (said) changed();
+        draw();
+      };
+      row.querySelector(".anim-label")!.append(clean);
+      if (a.frames.some((f) => p.files.has(origPath(f)))) {
+        const undo = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: "Undo clean-up" });
+        undo.setAttribute("aria-label", `Undo clean-up of ${name} ${anim}`);
+        undo.onclick = () => {
+          for (const f of a.frames) if (p.files.has(origPath(f))) (p.files.set(f, p.files.get(origPath(f))!), p.files.delete(origPath(f)));
+          changed();
+          draw();
+        };
+        row.querySelector(".anim-label")!.append(undo);
       }
       box.append(row);
     }

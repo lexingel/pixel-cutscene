@@ -156,3 +156,11 @@ test("fx_reach_is_1_to_4", () => {
   expect(e).not.toContain("f1.reach");
   expect(e).toContain("f2.reach: must be 1 to 4");
 });
+
+import { validateTimeline as vt } from "../src/core/timeline";
+test("a_sound_length_is_half_a_second_to_thirty", () => {
+  const tl = { name: "t", duration: 5, shots: [{ id: "s1", type: "wide", start: 0, end: 5, bg_scale: 1, camera: [{ t: 0, x: 0, y: 0 }] }], actors: [], fx: [], audio: [{ id: "a1", t: 0, clip: "c", kind: "sfx", dur: 40 }] };
+  expect(vt(tl).join("\n")).toMatch(/a1\.dur/);
+  tl.audio[0].dur = 3;
+  expect(vt(tl)).toEqual([]);
+});

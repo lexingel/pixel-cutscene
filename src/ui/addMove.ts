@@ -66,7 +66,7 @@ async function framesOf(p: Project, char: string, img: (path: string) => Img | n
 // Where and when a breath that starts at t burns: the last third of the clip, at the mouth of the frame showing then
 // (else the sprite's facing edge, 30% down), flipped like the actor.
 function flameAt(actor: Timeline["actors"][number], t: number, frames: Frames) {
-  // not made yet: the generator returns 9 frames (frame_count 8 + the reference)
+  // not made yet: a breathe plays once, so it keeps the reference: 9 frames (frame_count 8 + the reference)
   const clip = (frames(actor.char, "breathe").length || 9) / ANIM_FPS;
   const ft = snap(t + (2 / 3) * clip);
   const q = pose({ ...actor, actions: [{ id: "_", t, do: "anim:breathe" }] }, ft, frames);
@@ -103,11 +103,16 @@ export async function replaceFlames(
   return changed ? { ...tl, fx } : tl;
 }
 
-/** How far a flame from `at` must carry to reach the nearest other actor it faces (1 = as drawn, in half steps, up to 4). */
-export function reachTo(tl: Timeline, self: Timeline["actors"][number], at: { x: number; flip: boolean }, natural: number): number {
+/**
+ * How far a flame from `at` must carry to reach the nearest other actor it faces where they stand at at.t (default 0)
+ * (1 = as drawn, in half steps, up to 4).
+ */
+export function reachTo(tl: Timeline, self: Timeline["actors"][number], at: { x: number; flip: boolean; t?: number }, natural: number): number {
   let d = Infinity;
   for (const a of tl.actors) {
-    const dx = (a.x - at.x) * (at.flip ? -1 : 1);
+    const q = pose(a, at.t ?? 0, () => []);
+    if (!q || q.gone) continue;
+    const dx = (q.feet.x - at.x) * (at.flip ? -1 : 1);
     if (a.id !== self.id && dx > 0) d = Math.min(d, dx);
   }
   return d === Infinity ? 1 : clampReach(Math.ceil((d / natural) * 2) / 2);

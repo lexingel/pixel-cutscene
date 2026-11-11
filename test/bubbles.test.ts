@@ -114,3 +114,14 @@ test.skipIf(!existsSync("../cutscene"))("the_godot_stage_has_the_same_font", () 
   if (process.env.WRITE_FONT) writeFileSync("../cutscene/font.json", want);
   expect(readFileSync("../cutscene/font.json", "utf8").replace(/\r\n/g, "\n")).toBe(want);
 });
+
+test("a voice bubble stays up as long as its clip plays, never shorter than reading time", () => {
+  const tl = { name: "t", duration: 20, shots: [], fx: [], actors: [{ id: "h1", char: "hero", x: 50, y: 100, actions: [] }],
+    audio: [{ id: "v", t: 1, clip: "vo", kind: "voice", line: "Hi", speaker: "hero" }] } as unknown as Timeline;
+  const kit: Kit = { chars: {}, faces: {}, assets: { vo: { approved: true, source: "user", kind: "voice", path: "a.mp3", len: 6.5 } } };
+  expect(bubblesAt(tl, 1 + sayDur("Hi") + 0.5)).toEqual([]); // without the kit: reading time only
+  expect(bubblesAt(tl, 7.3, kit)).toHaveLength(1); // the clip is still playing
+  expect(bubblesAt(tl, 7.6, kit)).toEqual([]);
+  kit.assets.vo.len = 0.4;
+  expect(bubblesAt(tl, 1 + sayDur("Hi") - 0.1, kit)).toHaveLength(1); // a short clip still leaves time to read
+});

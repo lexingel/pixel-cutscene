@@ -170,6 +170,14 @@ describe("flame reach", () => {
     expect(reachTo(tl([0]), tl([0]).actors[0], { x: 10, flip: false }, 148)).toBe(1);
     expect(reachTo(tl([0, 2000]), tl([0, 2000]).actors[0], { x: 10, flip: false }, 148)).toBe(4);
   });
+  test("reach_uses_where_actors_stand_when_the_flame_comes", () => {
+    const t = tl([0, 1000]);
+    t.actors[1].actions.push({ id: "w", t: 0, do: "walk", to: [300, 100], dur: 1 });
+    expect(reachTo(t, t.actors[0], { x: 10, flip: false, t: 2 }, 148)).toBe(2); // walked in to 300
+    expect(reachTo(t, t.actors[0], { x: 10, flip: false, t: 0 }, 148)).toBe(4); // still far at the start
+    t.actors[1].appear = 3;
+    expect(reachTo(t, t.actors[0], { x: 10, flip: false, t: 2 }, 148)).toBe(1); // not there yet
+  });
   test("breathe_toward_a_far_actor_stretches_the_flame", async () => {
     const { p, tl: t } = setup();
     t.actors.push({ id: "hero2", char: "hero", x: t.actors[0].x + 400, y: t.actors[0].y, actions: [] } as never);

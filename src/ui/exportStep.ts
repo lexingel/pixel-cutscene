@@ -1,7 +1,7 @@
 import { missingReport } from "../core/missing";
 import type { Project } from "../core/project";
-import { pickCodec } from "../export/encode";
-import { MissingError, exportVideo, type ExportKind } from "../export/exporter";
+import { pickCodec, type Quality } from "../export/encode";
+import { MissingError, exportVideo, sliceFit, type ExportKind } from "../export/exporter";
 import { creditsText, loadTracks } from "./music";
 import type { Step } from "./steps";
 
@@ -15,6 +15,8 @@ function download(blob: Blob, name: string) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+
+const OUT: Record<string, [number, number]> = { vertical: [1080, 1920], square: [1080, 1080] };
 
 export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => void): void {
   const tl = p.tl;
@@ -35,7 +37,12 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
     <div class="export-cards">
       <div class="card">
         <h2>Full video</h2>
-        <p class="small">${W * k}×${H * k} · 30 fps · with sound</p>
+        <p class="small" data-testid="full-size">${W * k}×${H * k} · 30 fps · with sound</p>
+        <div class="row wrap">
+          <label>Shape <select data-act="shape"><option value="wide">Wide 16:9</option><option value="vertical">Vertical 9:16 (Shorts, TikTok)</option><option value="square">Square 1:1 (posts)</option></select></label>
+          <label data-act="slice" hidden>Slice centre x <input type="number" min="0" max="${W}" step="1" data-act="cx" value="${Math.round(W / 2)}" /></label>
+          <label>Quality <select data-act="quality"><option value="share">Share: small file (~9 Mbit/s)</option><option value="best">Best: archive (~37 Mbit/s)</option></select></label>
+        </div>
         <button class="btn primary" type="button" data-act="full">Export video</button>
       </div>
       <div class="card">
@@ -62,6 +69,15 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
   const row = $(".progress-row");
   const buttons = [$<HTMLButtonElement>("[data-act=full]"), $<HTMLButtonElement>("[data-act=loop]")];
 
+  const shape = $<HTMLSelectElement>("[data-act=shape]");
+  shape.onchange = () => {
+    const out = OUT[shape.value];
+    $("[data-act=slice]").hidden = !out;
+    const f = out && sliceFit(W, H, ...out);
+    $("[data-testid=full-size]").textContent = f
+      ? `${f.outW}×${f.outH} · a ${f.cw} px wide slice of the scene at ×${f.k} · 30 fps · with sound`
+      : `${W * k}×${H * k} · 30 fps · with sound`;
+  };
   const codecP = pickCodec(W * k, H * k);
   codecP.then((c) => {
     $("[data-testid=format-note]").textContent = c === "mp4"
@@ -84,7 +100,8 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
     draft.disabled = true;
     const codec = await codecP;
     const ext = kind === "full" ? codec : kind === "loop-gif" ? "gif" : "webm";
-    const name = `${p.name}${kind === "full" ? "" : "_loop"}${draft.checked ? "_DRAFT" : ""}.${ext}`;
+    const tag = kind !== "full" ? "_loop" : shape.value === "wide" ? "" : `_${shape.value}`;
+    const name = `${p.name}${tag}${draft.checked ? "_DRAFT" : ""}.${ext}`;
     row.hidden = false;
     bar.value = 0;
     $(".progress-row span").textContent = "Mixing the sound…";
@@ -93,6 +110,8 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
     try {
       const blob = await exportVideo(p, {
         draft: draft.checked, kind, range, signal: ctl.signal,
+        quality: $<HTMLSelectElement>("[data-act=quality]").value as Quality,
+        ...(kind === "full" && shape.value !== "wide" ? { slice: { cx: Number($<HTMLInputElement>("[data-act=cx]").value), out: OUT[shape.value] } } : {}),
         onProgress: (f) => {
           if (!bar.isConnected) return ctl.abort(); // the user left this step: stop rendering
           bar.value = f;

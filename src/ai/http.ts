@@ -68,7 +68,7 @@ export async function callApi(provider: Provider, url: string, init: RequestInit
 
 // The only reads that may skip the paid-call confirm.
 const FREE: Partial<Record<Provider, RegExp>> = {
-  pixellab: /^\/v2\/(balance|background-jobs\/[^/]+)$/,
+  pixellab: /^\/v2\/(balance|background-jobs\/[^/]+|characters\/[^/]+|vocal-animation\/[^/]+)$/,
   elevenlabs: /^\/v1\/voices$/,
 };
 

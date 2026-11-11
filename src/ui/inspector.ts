@@ -1,6 +1,6 @@
 import { readyChars, type Kit } from "../core/kit";
 import { ACTIONS, KINDS } from "../core/timeline";
-import { elevenKey, voicesFor } from "./eleven";
+import { audioPlan, elevenKey, generateAudio, voicesFor } from "./eleven";
 import type { CamKey, Timeline } from "../core/types";
 import type { Project } from "../core/project";
 import { pickTrack } from "./music";
@@ -10,17 +10,21 @@ import { find, moveEntry, resizeEntry, setCamera, setField, setMove, snap, type 
 import { freePath } from "../core/cast";
 import { decode } from "./cast";
 import { toast } from "./dialogs";
-import { generateShotBg, NO_KEY, pixellabKey } from "./pixellab";
+import { generateShotBg, NO_KEY, paid, pixellabKey } from "./pixellab";
+import { COST, bgScale, genMouthsInto } from "../gen/pixellab";
 import { loadFx, REACH_MAX, takesReach } from "../core/fxLibrary";
 
 type Kind = "num" | "text" | "bool" | "select";
 type Field = { key: string; label: string; kind: Kind; options?: string[]; optional?: boolean; text?: (o: string) => string };
-type Ctx = { kit: Kit; now: () => number; errors: string[]; kitChanged?: () => void; project?: Project; move?: (actionId: string, doId: string) => void; reach?: (fxId: string, reach: number) => void };
+type Ctx = { kit: Kit; now: () => number; errors: string[]; kitChanged?: () => void; project?: Project; move?: (actionId: string, doId: string) => void; reach?: (fxId: string, reach: number) => void; aim?: (fxId: string, deg: number) => void };
 type Obj = Record<string, any>;
 
 const STYLE_TEXT = (o: string) => (o === "box" ? "dialogue box" : o === "none" ? "nothing" : "speech bubble");
 const NUM = (key: string, label = key, optional = false): Field => ({ key, label, kind: "num", optional });
 const show = (v: unknown) => (typeof v === "number" ? String(Math.round(v * 1000) / 1000) : v === undefined ? "" : String(v));
+const LAYER_TEXT: Record<string, string> = { "": "by where they stand", front: "always in front", back: "always behind" };
+const MOODS = ["neutral", "happy", "angry", "sad", "surprised"]; // PixelLab's lip-sync moods
+const uniq = (xs: string[]) => [...new Set(xs.filter(Boolean))];
 const assetIds = (kit: Kit, kinds: string[]) => Object.keys(kit.assets).filter((k) => kinds.includes(kit.assets[k].kind));
 
 function fields(tl: Timeline, id: string, kit: Kit): Field[] {
@@ -28,11 +32,14 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
   const e = at.e;
   switch (at.kind) {
     case "root":
-      return [{ key: "name", label: "name", kind: "text" }, NUM("duration", "duration (s)"), NUM("closeup_scale", "close-up scale", true)];
+      return [{ key: "name", label: "name", kind: "text" }, NUM("duration", "duration (s)"), NUM("closeup_scale", "close-up scale", true), { key: "shadows", label: "ground shadows", kind: "bool", optional: true }];
     case "shot":
       return [
         { key: "bg", label: "background", kind: "select", options: ["", ...assetIds(kit, ["bg", "backdrop"])], optional: true },
-        ...(e.type === "wide" ? [NUM("bg_scale", "bg scale"), NUM("ground", "ground line y", true)] : [{ key: "face", label: "face", kind: "text" as Kind }, { key: "expr", label: "expression", kind: "text" as Kind }]),
+        ...(e.type === "wide" ? [NUM("bg_scale", "bg scale"), NUM("ground", "ground line y", true)] : [
+          { key: "face", label: "face", kind: "select" as Kind, options: uniq([e.face, ...Object.keys(kit.faces), ...tl.actors.map((a) => a.char)]) },
+          { key: "expr", label: "expression", kind: "select" as Kind, options: uniq([e.expr, ...MOODS, ...Object.keys(kit.faces[e.face] ?? {})]) },
+        ]),
         NUM("fade_in", "fade in (s)", true),
         NUM("fade_out", "fade out (s)", true),
         NUM("flash", "white flash (s)", true),
@@ -48,6 +55,7 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
         { key: "char", label: "character", kind: "select", options: readyChars(kit) },
         NUM("x"), NUM("y"),
         { key: "flip", label: "faces left", kind: "bool", optional: true },
+        { key: "layer", label: "layer", kind: "select", options: ["", "front", "back"], optional: true, text: (o: string) => LAYER_TEXT[o] },
         NUM("appear", "appears at (s)", true),
       ];
     case "action": {
@@ -65,7 +73,7 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
       ];
     }
     case "fx":
-      return [NUM("t", "t (s)"), NUM("dur", "dur (s)", true), NUM("x"), NUM("y")];
+      return [NUM("t", "t (s)"), NUM("dur", "dur (s)", true), NUM("x"), NUM("y"), { key: "flip", label: "faces left", kind: "bool", optional: true }];
     case "audio":
       return [
         { key: "clip", label: "clip", kind: "text" },
@@ -76,6 +84,7 @@ function fields(tl: Timeline, id: string, kit: Kit): Field[] {
           { key: "speaker", label: "speaker", kind: "select" as Kind, options: ["", ...Object.keys(kit.chars)], optional: true },
           { key: "bubble", label: "on screen", kind: "select" as Kind, options: ["", "box", "none"], optional: true, text: STYLE_TEXT },
         ] : []),
+        ...(e.kind === "sfx" ? [NUM("dur", "length to make (s)", true)] : []),
         NUM("vol_db", "volume (dB)", true),
       ];
   }
@@ -169,6 +178,7 @@ export function renderInspector(
     lab.append(Object.assign(document.createElement("span"), { textContent: "effect" }), out);
     box.prepend(lab);
     const a = ctx.kit.assets[e.fx];
+    if (a?.source === "pixelfx" && ctx.aim) box.insertBefore(aimField(e.angle ?? 0, (n) => ctx.aim!(id, n)), box.querySelector(".foot"));
     if (a?.source === "pixelfx" && a.ref && ctx.reach) {
       const reach = ctx.reach, ref = a.ref;
       loadFx(ref).then((m) => {
@@ -184,8 +194,24 @@ export function renderInspector(
     b.onclick = async () => ((await pickTrack(p, e.clip)) ? ctx.kitChanged?.() : undefined);
     box.append(b);
   }
+  if (at.kind === "audio" && (e.kind === "voice" || e.kind === "sfx") && ctx.project) {
+    const p = ctx.project;
+    const plan = audioPlan(p, id, e.kind);
+    const made = p.kit.assets[e.clip]?.source === "elevenlabs";
+    const b = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: made ? "Redo with ElevenLabs" : "Generate with ElevenLabs" });
+    const kept = !!p.kit.assets[e.clip]?.approved; // approved clips are never replaced
+    b.disabled = !!plan.why || kept;
+    b.title = plan.why ?? (kept ? "This clip is approved" : e.kind === "voice" ? "Speak this line in the speaker's voice" : "Make this sound from its line (or clip name)");
+    b.onclick = async () => {
+      b.disabled = true;
+      await generateAudio(p, e.clip, id, e.kind, () => ctx.kitChanged?.());
+      b.disabled = false;
+    };
+    box.append(b);
+  }
   if (at.kind === "shot" && ctx.project) box.append(bgUpload(ctx.project, tl, id, apply, ctx.kitChanged));
   if (at.kind === "shot" && e.type === "wide" && ctx.project) box.append(bgGenerate(ctx.project, id, apply, ctx.kitChanged));
+  if (at.kind === "shot" && e.type === "closeup" && ctx.project) box.append(lipSync(ctx.project, e.face, e.expr, ctx.kitChanged));
   if (at.kind === "shot" && e.type === "wide") box.append(cameraKeys(tl, id, e.camera as CamKey[], ctx.now, apply));
   if (at.kind === "root") {
     const todo = nextSteps(tl, ctx.kit);
@@ -199,7 +225,7 @@ export function renderInspector(
     const note = Object.assign(document.createElement("p"), { className: n ? "hint err" : "hint" });
     note.textContent = n
       ? `${n} problem${n === 1 ? "" : "s"} in this timeline. First: ${ctx.errors[0]}`
-      : "Click a bar to edit it. Space plays, ← → move 1 s, Shift steps one frame.";
+      : "Click a bar to edit it. Space plays, ← → move 1 s, Shift steps one frame, Home / End jump to the ends, [ and ] set a selected bar's start and end.";
     box.append(note);
     return;
   }
@@ -218,6 +244,19 @@ const kitChar = (kit: Kit, c: string) => kit.chars[c];
 
 // The speaking character's voice id: a pick-list when an ElevenLabs key is set, else a text box.
 // How far the effect carries: as drawn, or longer in half steps (each length bakes its own sheet).
+// The aim in degrees (0 = as drawn, facing right; 90 = straight down); a new angle re-bakes the effect.
+function aimField(now: number, set: (n: number) => void): HTMLElement {
+  const lab = Object.assign(document.createElement("label"), { className: "field" });
+  const inp = Object.assign(document.createElement("input"), { type: "number", step: "5", min: "-180", max: "180", value: String(Math.round(now)) });
+  inp.setAttribute("aria-label", "angle");
+  inp.onchange = () => {
+    const n = Math.round(Number(inp.value));
+    if (Number.isFinite(n) && n !== now) set(((((n + 180) % 360) + 360) % 360) - 180);
+  };
+  lab.append(Object.assign(document.createElement("span"), { textContent: "angle (°)" }), inp);
+  return lab;
+}
+
 function reachField(now: number, set: (n: number) => void): HTMLElement {
   const lab = Object.assign(document.createElement("label"), { className: "field" });
   const sel = document.createElement("select");
@@ -316,10 +355,28 @@ function bgGenerate(p: Project, id: string, apply: (r: EditResult) => void, kitC
     b.disabled = true;
     await generateShotBg(p, id, (bg) => {
       let r = setField(p.tl!, id, "bg", bg);
-      if (!r.error) r = setField(r.tl, id, "bg_scale", 2);
+      if (!r.error) r = setField(r.tl, id, "bg_scale", bgScale(p.canvas));
       apply(r);
       kitChanged?.();
     });
+    b.disabled = false;
+  };
+  return b;
+}
+
+// Mouth shapes for this close-up's face: once made, every line its character speaks moves the mouth.
+function lipSync(p: Project, face: string, expr: string, kitChanged?: () => void): HTMLElement {
+  const piece = p.kit.faces[face]?.[expr];
+  const b = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: piece?.mouths?.length ? "Redo lip-sync" : "Lip-sync this face" });
+  const why = !pixellabKey() ? NO_KEY : !piece?.approved ? "Approve this face first" : "";
+  b.disabled = !!why;
+  b.title = why || "PixelLab draws 7 mouth shapes; the mouth then moves with every voice line or speech bubble of this character";
+  b.onclick = async () => {
+    b.disabled = true;
+    if (await paid(`Lip-sync ${face}'s ${expr} face`, COST.mouths, 1, (k, t) => genMouthsInto(p, k, face, expr, t))) {
+      toast("Mouth shapes made. Play the close-up to see it speak.");
+      kitChanged?.();
+    }
     b.disabled = false;
   };
   return b;

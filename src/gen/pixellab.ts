@@ -4,13 +4,21 @@
  *     Cost: not stated on this endpoint; /create-character-v3 prices its pixen step at "1 (pixen)", so 1 generation each.
  *     Chosen over /generate-image-v2 (Pro, cost not stated, 4-64 images by size) and pixflux (cost not stated).
  * - genAnim: POST /animate-pixminimax (async job). first_frame = the approved reference; the job returns
- *     frame_count + 1 frames, index 0 being the input unchanged, so the reference is frame 0.
+ *     frame_count + 1 frames, index 0 being the input unchanged; loops (idle, walk, run) drop it.
  *     Cost: "64x64 at 4 / 8 / 16 / 40 frames = 1 / 1 / 2 / 6 generations"; "32x32 at 4 frames = 1".
  *     Chosen over /animate-with-text-v3 and -v2 (cost not stated).
  * - genFace: POST /edit-image-pixen (async job). Edits the base face when there is one, else the body sprite
  *     into a portrait. Sides must be multiples of 4 (we pad, never rescale). Cost: "1 generation".
  * - genBackground: POST /create-image-pixen (sync, opaque). Sides multiples of 4, area at most 512x512.
  *     Cost: as genCharacter, 1 generation.
+ * - genCharacterV3: POST /create-character-v3 (async job, from scratch, view "side", 4 calls). The result is a PixelLab
+ *     character with a skeleton ("mannequin": people-shaped bodies). Cost: "1 (pixen) + ceil(s*s*8 / 65536)", so 2 at 64 px.
+ * - genAnimV3: POST /animate-character, mode "skeleton-v3", east only: the move is posed onto that same character instead of
+ *     redrawn from a still ("steadier identity and colours"). Cost: "2-4 generations per direction".
+ *     Rotation and frame images are public files on supabase.pixellab.ai, read without the key.
+ * - genMouths: POST /vocal-animation with the approved face as `portrait` (stores nothing on PixelLab), 7 mouth shapes,
+ *     engine "pixminimax" (keeps eyes, brows and head still). Cost: "3 generations for 7 positions". Polled via
+ *     GET /vocal-animation/{id} (free).
  * - balance: GET /balance (free). Job polling: GET /background-jobs/{id} (free); both go through callFree.
  * Paid calls go only through callApi with the caller's ticket; a failed job is not charged ("Charged at completion").
  */
@@ -31,6 +39,9 @@ export const COST = {
   anim: "One animation, 1 generation.",
   face: "One image edit, 1 generation.",
   background: "One image, about 1 generation.",
+  characterV3: "4 PixelLab characters, about 2 generations each (8 in all).",
+  animV3: "One move posed on the character, 2 to 4 generations.",
+  mouths: "7 mouth shapes for this face, 3 generations. After that every line it speaks is lip-synced for free.",
 };
 
 export type Io = { decode(b64: string): Promise<Img>; encode(img: Img): Promise<Blob>; wait(ms: number): Promise<void> };
@@ -58,6 +69,10 @@ const post = async (key: string, path: string, body: object, ticket: PaidTicket)
 // Async endpoints: one paid POST, then free status reads until the job ends.
 async function job(key: string, path: string, body: object, ticket: PaidTicket, io: Io): Promise<Record<string, unknown>> {
   const { background_job_id: id } = await post(key, path, body, ticket);
+  return waitJob(key, id, io);
+}
+
+async function waitJob(key: string, id: string, io: Io): Promise<Record<string, unknown>> {
   let misses = 0; // the job is already paid for: a few failed status reads in a row are waited out
   for (let i = 0; i < 150; i++) {
     let j: Record<string, any>;
@@ -129,6 +144,71 @@ export async function genCharacter(key: string, description: string, px: number,
   return out;
 }
 
+// PixelLab characters (create-character-v3): one body on PixelLab's side that every move is posed from.
+const getChar = async (key: string, id: string): Promise<Record<string, any>> =>
+  (await callFree("pixellab", `${API}/characters/${encodeURIComponent(id)}`, { headers: auth(key) })).json();
+
+// Their images are public files: fetched with no key, and only from PixelLab's own file store.
+async function publicPng(url: string, io: Io): Promise<string> {
+  const u = new URL(url);
+  if (u.protocol !== "https:" || u.hostname !== "supabase.pixellab.ai") throw new Error("PixelLab files may only come from supabase.pixellab.ai");
+  const res = await fetch(url, { redirect: "error", credentials: "omit" });
+  if (!res.ok) throw new Error(`Could not read a PixelLab file (${res.status})`);
+  return blobB64(await res.blob());
+}
+
+export async function genCharacterV3(key: string, description: string, px: number, ticket: PaidTicket, io: Io = browserIo): Promise<{ id: string; img: Img }[]> {
+  const out: { id: string; img: Img }[] = [];
+  const s0 = seed();
+  for (let i = 0; i < 4; i++) {
+    const r = await post(key, "/create-character-v3", {
+      description, image_size: { width: px, height: px }, view: "side", template_id: "mannequin", no_background: true, seed: s0 + i,
+    }, ticket);
+    await waitJob(key, r.background_job_id, io);
+    const c = await getChar(key, r.character_id);
+    const east = c.rotation_urls?.east;
+    if (!east) throw new Error("PixelLab made the character but it has no side view");
+    const [img] = await sprite([await publicPng(east, io)], io);
+    out.push({ id: r.character_id, img: trimShared([img])[0] });
+  }
+  return out;
+}
+
+export async function genAnimV3(key: string, id: string, anim: string, ticket: PaidTicket, io: Io = browserIo, motion?: string): Promise<Img[]> {
+  const r = await post(key, "/animate-character", {
+    character_id: id, mode: "skeleton-v3", animation_name: anim, directions: ["east"],
+    action_description: motion ?? MOTION[anim] ?? anim.replace(/_/g, " "),
+    frame_count: anim === "idle" ? 4 : 8,
+  }, ticket);
+  for (const j of r.background_job_ids ?? []) await waitJob(key, j, io);
+  const group = (await getChar(key, id)).animations?.find((g: any) => g.animation_group_id === r.animation_group_id);
+  const urls: string[] = group?.directions?.find((d: any) => d.direction === "east")?.frames ?? [];
+  if (!urls.length) throw new Error("PixelLab finished the move but returned no side-view frames");
+  const b64s: string[] = [];
+  for (const u of urls) b64s.push(await publicPng(u, io));
+  return trimShared(await sprite(b64s, io));
+}
+
+const MOODS = ["neutral", "happy", "angry", "sad", "surprised"];
+
+/** Mouth shapes for a face, in PixelLab's order (the closed one first). */
+export async function genMouths(key: string, face: Img, expr: string, ticket: PaidTicket, io: Io = browserIo): Promise<{ id: string; img: Img }[]> {
+  const { background_job_id: id } = await post(key, "/vocal-animation", {
+    portrait: await toB64(face, io), mood: MOODS.includes(expr) ? expr : "neutral", viseme_count: 7, engine: "pixminimax", no_background: false,
+  }, ticket);
+  for (let i = 0; i < 150; i++) {
+    const j = await (await callFree("pixellab", `${API}/vocal-animation/${encodeURIComponent(id)}`, { headers: auth(key) })).json();
+    if (j.status === "failed") throw new Error("PixelLab could not make the mouth shapes");
+    if (j.status === "completed" && j.visemes) {
+      const ids: string[] = [...new Set([...(j.completed_visemes ?? []), ...Object.keys(j.visemes)])].filter((v) => j.visemes[v]);
+      const imgs = await Promise.all(ids.map((v) => io.decode(typeof j.visemes[v] === "string" ? j.visemes[v] : j.visemes[v].base64)));
+      return ids.map((v, k) => ({ id: v, img: imgs[k] }));
+    }
+    await io.wait(6000);
+  }
+  throw new Error("PixelLab is taking too long. Try again later.");
+}
+
 export const MOTION: Record<string, string> = {
   idle: "idle breathing loop, standing in place",
   walk: "walking in place, a full walk cycle",
@@ -151,8 +231,12 @@ export async function genAnim(key: string, ref: Img, anim: string, description: 
     initial_pose: "standing",
     no_background: true,
   }, ticket, io);
-  return trimShared(await sprite(images(r), io));
+  // frame 0 is the reference unchanged: a looping move would stand still on it once a cycle; a once move starts from it
+  const frames = images(r);
+  return trimShared(await sprite(LOOPS.has(anim) && frames.length > 1 ? frames.slice(1) : frames, io));
 }
+
+const LOOPS = new Set(["idle", "walk", "run"]);
 
 export async function genFace(key: string, ref: Img, expr: string, baseFace: Img | undefined, ticket: PaidTicket, io: Io = browserIo): Promise<Img> {
   const src = pad4(baseFace ?? ref, 16);
@@ -195,11 +279,11 @@ export function approvePiece(kit: Kit, t: At): void {
 }
 
 // The picked candidate becomes the character's reference; the character has no animations until idle is made.
-export async function approveRef(p: Project, name: string, img: Img, io: Io = browserIo, opts: { size?: SizeName; scale?: 2 } = {}): Promise<void> {
+export async function approveRef(p: Project, name: string, img: Img, io: Io = browserIo, opts: { size?: SizeName; scale?: 2; pl?: string } = {}): Promise<void> {
   if (p.kit.chars[name] || p.files.has(refPath(name))) throw new Error(`${name} is already in the cast. Pick another name.`);
   const blob = await io.encode(img);
   p.files.set(refPath(name), blob);
-  p.kit.chars[name] ??= { view: "side", anims: {}, ...(opts.size && { size: opts.size }), ...(opts.scale && { scale: opts.scale }) };
+  p.kit.chars[name] ??= { view: "side", anims: {}, ...(opts.size && { size: opts.size }), ...(opts.scale && { scale: opts.scale }), ...(opts.pl && { pl: opts.pl }) };
 }
 
 // The reference for a character's new animations and faces: its generated reference, else its idle frame 0.
@@ -226,7 +310,8 @@ export async function genAnimInto(
   guard(at(), `${char} ${anim}`);
   const ref = await refOf(p, char, io);
   if (!ref) throw new Error(`${char} has no reference image yet`);
-  const frames = await genAnim(key, ref.img, anim, description, ticket, io, motion);
+  const pl = p.kit.chars[char]?.pl;
+  const frames = pl ? await genAnimV3(key, pl, anim, ticket, io, motion) : await genAnim(key, ref.img, anim, description, ticket, io, motion);
   const blobs = await Promise.all(frames.map(io.encode));
   guard(at(), `${char} ${anim}`);
   const c = (p.kit.chars[char] ??= { view: "side", anims: {} });
@@ -258,9 +343,13 @@ export async function genFaceInto(p: Project, key: string, face: string, expr: s
   (p.kit.faces[face] ??= {})[expr] = { approved: false, source: "pixellab", ref: baseEntry?.path ?? ref.path, path };
 }
 
+/** A generated background is 1:1 with the scene when it fits PixelLab's 512x512 area limit (same pixel size as the characters); else half size, shown at 2x. */
+export const bgScale = (c: { W: number; H: number }) => (c.W * c.H <= 512 * 512 ? 1 : 2);
+
 export async function genBackgroundInto(p: Project, key: string, id: string, description: string, ticket: PaidTicket, io: Io = browserIo): Promise<void> {
   guard(p.kit.assets[id], id);
-  const img = await genBackground(key, description, p.canvas.W / 2, p.canvas.H / 2, ticket, io);
+  const { W, H } = p.canvas, k = bgScale(p.canvas);
+  const img = await genBackground(key, description, W / k, H / k, ticket, io);
   const blob = await io.encode(img);
   guard(p.kit.assets[id], id);
   const old = p.kit.assets[id];
@@ -268,4 +357,18 @@ export async function genBackgroundInto(p: Project, key: string, id: string, des
   const path = freePath(p, "bg/", `${id}.png`);
   p.files.set(path, blob);
   p.kit.assets[id] = { approved: false, source: "pixellab", kind: "bg", path };
+}
+
+export async function genMouthsInto(p: Project, key: string, face: string, expr: string, ticket: PaidTicket, io: Io = browserIo): Promise<void> {
+  const piece = p.kit.faces[face]?.[expr];
+  const blob = piece?.approved ? p.files.get(piece.path) : undefined;
+  if (!piece || !blob) throw new Error(`${face}'s ${expr} face must be approved first`);
+  const shapes = await genMouths(key, await io.decode(await blobB64(blob)), expr, ticket, io);
+  const blobs = await Promise.all(shapes.map((s) => io.encode(s.img)));
+  dropFiles(p, piece.mouths ?? []);
+  piece.mouths = shapes.map((s, i) => {
+    const path = freePath(p, `faces/${face}/${expr}_mouth/`, `${s.id.replace(/[^\w-]/g, "_")}.png`);
+    p.files.set(path, blobs[i]);
+    return path;
+  });
 }

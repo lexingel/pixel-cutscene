@@ -6,7 +6,7 @@ import { frameZoom, renderFrame, watermark } from "../core/render";
 import { zoomFrame } from "../core/raster";
 import { decode } from "../ui/cast";
 import { MIX_RATE, decodeAudio, mixAudio } from "./audioMix";
-import { openSink, pickCodec, type Container } from "./encode";
+import { openSink, pickCodec, type Container, type Quality } from "./encode";
 
 export type ExportKind = "full" | "loop-webm" | "loop-gif";
 export type ExportOpts = {
@@ -15,7 +15,26 @@ export type ExportOpts = {
   kind?: ExportKind;
   onProgress(f: number): void;
   signal: AbortSignal;
+  quality?: Quality; // full only: "share" makes a much smaller file
+  slice?: { cx: number; out: [number, number] }; // full only: a 1080x1920 or 1080x1080 video of the scene slice centred on cx
 };
+
+/** A video of another shape (9:16, 1:1) from a W x H scene: a cw-wide slice at a whole scale k, centred in outW x outH on black. */
+export function sliceFit(W: number, H: number, outW: number, outH: number) {
+  const cw = Math.min(W, 2 * Math.round((H * outW) / outH / 2)); // even, so the slice and its offsets stay even
+  const k = Math.max(1, Math.min(Math.floor(outW / cw), Math.floor(outH / H)));
+  const even = (n: number) => 2 * Math.floor(n / 4);
+  return { outW, outH, cw, k, ox: even(outW - cw * k), oy: even(outH - H * k), sliceX: (cx: number) => Math.min(W - cw, Math.max(0, Math.round(cx - cw / 2))) };
+}
+
+/** Copies the w x h rectangle at (x0, 0) of an sw-wide RGBA image onto dst (dw wide) at (ox, oy); the rest is black. */
+export const verticalFit = (W: number, H: number) => sliceFit(W, H, 1080, 1920);
+
+export function cropInto(src: Uint8ClampedArray, sw: number, x0: number, w: number, h: number, dst: Uint8ClampedArray, dw: number, ox: number, oy: number): Uint8ClampedArray {
+  new Uint32Array(dst.buffer, dst.byteOffset, dst.length / 4).fill(new Uint32Array(new Uint8ClampedArray([0, 0, 0, 255]).buffer)[0]);
+  for (let y = 0; y < h; y++) dst.set(src.subarray((y * sw + x0) * 4, (y * sw + x0 + w) * 4), ((oy + y) * dw + ox) * 4);
+  return dst;
+}
 
 export class MissingError extends Error {
   constructor(public missing: ReturnType<typeof missingReport>) {
@@ -73,7 +92,8 @@ export async function exportVideo(p: Project, opts: ExportOpts, codec?: Containe
   const fps = kind === "loop-gif" ? GIF_FPS : FPS;
   const n = Math.max(1, Math.round((b - a) * fps));
   const { W, H } = p.canvas;
-  const k = kind === "full" ? p.canvas.exportScale : 1; // loops stay at native size
+  const vert = kind === "full" && opts.slice ? sliceFit(W, H, ...opts.slice.out) : null;
+  const k = vert ? vert.k : kind === "full" ? p.canvas.exportScale : 1; // loops stay at native size
   const abort = () => new DOMException("The export was cancelled.", "AbortError");
 
   const imgs = new Map<string, Img>();
@@ -85,7 +105,7 @@ export async function exportVideo(p: Project, opts: ExportOpts, codec?: Containe
       /* an unreadable picture renders as missing, as in the preview */
     }
   }
-  const input = { tl, kit: p.kit, img: (path: string) => imgs.get(path) ?? null, draft: opts.draft, W, H };
+  const input = { tl, kit: p.kit, img: (path: string) => imgs.get(path) ?? null, draft: opts.draft, W, H, mark: !vert };
   const native: Img = { w: W, h: H, px: new Uint8ClampedArray(W * H * 4) };
   const big = k === 1 ? native.px : new Uint8ClampedArray(W * k * H * k * 4);
   const zoomed = new Uint8ClampedArray(W * k * H * k * 4);
@@ -95,7 +115,7 @@ export async function exportVideo(p: Project, opts: ExportOpts, codec?: Containe
     const z = frameZoom(input, t);
     if (z) {
       zoomFrame(native, z.z, z.x, z.y, kk, zoomed);
-      if (input.draft) watermark({ w: W * kk, h: H * kk, px: zoomed.subarray(0, W * kk * H * kk * 4) });
+      if (input.draft && !vert) watermark({ w: W * kk, h: H * kk, px: zoomed.subarray(0, W * kk * H * kk * 4) });
       return zoomed;
     }
     return kk === 1 ? native.px : upscale(native, kk, big);
@@ -114,8 +134,18 @@ export async function exportVideo(p: Project, opts: ExportOpts, codec?: Containe
     return new Blob([gif.bytes()], { type: "image/gif" });
   }
 
-  const container = kind === "full" ? (codec ?? (await pickCodec(W * k, H * k))) : "webm";
-  const sink = openSink(container, W * k, H * k, fps, kind === "full");
+  const [outW, outH] = vert ? [vert.outW, vert.outH] : [W * k, H * k];
+  const container = kind === "full" ? (codec ?? (await pickCodec(outW, outH))) : "webm";
+  const sink = openSink(container, outW, outH, fps, kind === "full", opts.quality);
+  const out = vert ? new Uint8ClampedArray(outW * outH * 4) : null;
+  const x0 = vert ? vert.sliceX(opts.slice!.cx) * k : 0;
+  // a vertical video: the slice of the frame at x0, on black
+  const shown = (px: Uint8ClampedArray) => {
+    if (!vert) return px;
+    const o = cropInto(px, W * k, x0, vert.cw * k, H * k, out!, outW, vert.ox, vert.oy);
+    if (opts.draft) watermark({ w: outW, h: outH, px: o });
+    return o;
+  };
   try {
     if (kind === "full") {
       const dctx = new OfflineAudioContext(2, 1, MIX_RATE);
@@ -127,7 +157,7 @@ export async function exportVideo(p: Project, opts: ExportOpts, codec?: Containe
     }
     for (let i = 0; i < n; i++) {
       if (opts.signal.aborted) throw abort();
-      await sink.frame(frameAt(a + i / fps, k), i, i % (2 * fps) === 0);
+      await sink.frame(shown(frameAt(a + i / fps, k)), i, i % (2 * fps) === 0);
       opts.onProgress((i + 1) / n);
       await tick();
     }

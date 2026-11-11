@@ -54,11 +54,11 @@ test("pixellab: candidates, approve, idle, approve", async ({ page }) => {
   await expect(page.getByTestId("cast-list")).toContainText("no idle yet");
   await page.getByRole("button", { name: "Generate idle" }).click();
   await page.locator("dialog[open]").getByRole("button", { name: "Run it" }).click();
-  await expect(page.locator(".gen-body .strip img")).toHaveCount(5);
+  await expect(page.locator(".gen-body .strip img")).toHaveCount(4); // the idle loops: the reference frame 0 is dropped
   await expect(page.getByTestId("cast-list")).toContainText("idle not approved yet");
   await page.getByRole("button", { name: "Approve", exact: true }).click();
   await expect(page.getByTestId("cast-list")).toContainText("knight");
-  await expect(page.getByTestId("cast-list")).toContainText("idle 5 frames");
+  await expect(page.getByTestId("cast-list")).toContainText("idle 4 frames");
   await expect(page.getByTestId("cast-list")).not.toContainText("not approved");
 
   // 4 paid creates, 1 paid animation, its free polling and the free balance reads
@@ -264,4 +264,42 @@ test("pixellab: Breathe fire from the + menu before it exists adds its flame", a
   await page.getByRole("menuitem", { name: "Breathe fire" }).click();
   await expect(page.locator(".clip[title=\"hero · Breathe fire\"]")).toBeVisible();
   await expect(page.locator(".clip.fx[title=\"fire breath\"]")).toBeVisible();
+});
+
+test("pixellab: Generate all makes every missing move behind one confirm with the total", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("pcs.keys", JSON.stringify({ pixellab: "test-key" })));
+  const seen = await stubPixellab(page);
+  await page.goto("/");
+  await page.locator("input[accept*=zip]").waitFor({ state: "attached" });
+  await page.evaluate(async () => {
+    const src = (f: string) => `/src/core/${f}.ts`;
+    const { newProject, toZip } = await import(src("project"));
+    const p = newProject("All fixture");
+    p.canvas = { W: 320, H: 180, exportScale: 2 };
+    const idle = [0, 1, 2, 3].map((i) => `chars/hero/idle/idle_${i}.png`);
+    for (const [i, f] of idle.entries()) p.files.set(f, await (await fetch(`/test/fixtures/sprites/hero/idle_${i}.png`)).blob());
+    p.kit.chars.hero = { view: "side", anims: { idle: { approved: true, source: "user", frames: idle } } };
+    p.tl = {
+      name: "all", duration: 6,
+      shots: [{ id: "s1", type: "wide", start: 0, end: 6, bg_scale: 1, camera: [{ t: 0, x: 0, y: 0 }] }],
+      actors: [{ id: "hero1", char: "hero", x: 80, y: 150, actions: [{ id: "a1", t: 1, do: "walk", to: [200, 150], dur: 2 }, { id: "a2", t: 4, do: "anim:attack" }] }],
+      fx: [], audio: [],
+    };
+    const dt = new DataTransfer();
+    dt.items.add(new File([await toZip(p)], "all.zip", { type: "application/zip" }));
+    const input = document.querySelector<HTMLInputElement>("input[accept*=zip]")!;
+    input.files = dt.files;
+    input.dispatchEvent(new Event("change"));
+  });
+  await expect(page.getByLabel("Project name")).toHaveValue("All fixture");
+  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.getByTestId("gen-all").click();
+  const dialog = page.locator("dialog[open]");
+  await expect(dialog).toContainText("PixelLab: Generate all (2 pieces)");
+  await expect(dialog).toContainText("about 2 generations");
+  await dialog.getByRole("button", { name: "Run it" }).click();
+  await expect(page.getByText("Generated 2 pieces.", { exact: false })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("needs").locator(".tag.unapproved")).toHaveCount(2);
+  expect(seen.filter((s) => s === "POST /v2/animate-pixminimax")).toHaveLength(2);
+  await page.screenshot({ path: "test-results/gen-all-1280x800.png" });
 });

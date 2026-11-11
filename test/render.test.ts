@@ -143,6 +143,45 @@ describe("renderFrame", () => {
     expect(at(r.out, 9, 34)).toEqual([0, 255, 0, 255]);
   });
 
+  test("an actor set to the back layer stays behind, one set to the front stays in front", () => {
+    const t = actorTl();
+    t.actors = [
+      { id: "front", char: "a", x: 10, y: 40, actions: [], layer: "back" },
+      { id: "back", char: "b", x: 10, y: 38, actions: [] },
+    ];
+    const kit = emptyKit();
+    kit.chars.a = { view: "side", anims: { idle: { ...piece, frames: ["a.png"] } } };
+    kit.chars.b = { view: "side", anims: { idle: { ...piece, frames: ["b.png"] } } };
+    const imgs = { "a.png": solid(4, 4, 255), "b.png": solid(4, 4, 0, 255) };
+    const r = setup(t, kit, imgs);
+    r.draw(0);
+    expect(at(r.out, 9, 37)).toEqual([0, 255, 0, 255]); // the lower one is behind now
+    t.actors[0].layer = undefined;
+    t.actors[1].layer = "front";
+    r.draw(0);
+    expect(at(r.out, 9, 37)).toEqual([0, 255, 0, 255]);
+  });
+
+  test("ground shadows: a dark oval under the feet when the scene has them on", () => {
+    const t = actorTl();
+    t.actors = [{ id: "h", char: "a", x: 100, y: 100, actions: [] }];
+    const kit = emptyKit();
+    kit.chars.a = { view: "side", anims: { idle: { ...piece, frames: ["a.png"] } } };
+    kit.assets.grey = { ...piece, kind: "bg", path: "g.png" } as any;
+    t.shots[0].bg = "grey";
+    const r = setup(t, kit, { "a.png": solid(10, 16, 255), "g.png": solid(200, 120, 100, 100, 100) });
+    r.draw(0);
+    expect(at(r.out, 100, 100)).toEqual([100, 100, 100, 255]); // off by default
+    t.shadows = true;
+    r.draw(0);
+    // a 16 px tall sprite: an oval 3 px out to each side, 1 px up and down, at 35% black
+    for (const x of [97, 100, 103]) expect(at(r.out, x, 100)).toEqual([65, 65, 65, 255]);
+    for (const x of [96, 104]) expect(at(r.out, x, 100)).toEqual([100, 100, 100, 255]);
+    expect(at(r.out, 100, 101)).toEqual([65, 65, 65, 255]);
+    expect(at(r.out, 100, 102)).toEqual([100, 100, 100, 255]);
+    expect(at(r.out, 100, 99)).toEqual([255, 0, 0, 255]); // the sprite covers it
+  });
+
   test("fade_in_black_at_0 and the fade cases", () => {
     const t = flat(tl());
     t.shots[0].fade_in = 1;

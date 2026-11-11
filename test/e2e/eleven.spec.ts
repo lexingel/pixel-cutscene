@@ -118,3 +118,14 @@ test("elevenlabs: a missing speaker is flagged and a failed voice list falls bac
   await expect(page.getByText("Could not load voices. Type a voice id.")).toBeVisible();
   await expect(page.getByLabel("voice for hero")).toHaveJSProperty("tagName", "INPUT");
 });
+
+test("elevenlabs: a sound is generated from its own bar's inspector", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("pcs.keys", JSON.stringify({ elevenlabs: "test-key" })));
+  await stubEleven(page);
+  await open(page);
+  await page.locator("[data-id=boom]").click();
+  await page.locator(".inspector").getByRole("button", { name: "Generate with ElevenLabs" }).click();
+  await expect(page.locator("dialog[open]")).toContainText("ElevenLabs: Generate sound sfx rumble");
+  await page.locator("dialog[open]").getByRole("button", { name: "Run it" }).click();
+  await expect(page.getByTestId("needs").locator("li", { hasText: "sfx_rumble" }).locator("audio")).toHaveCount(1);
+});

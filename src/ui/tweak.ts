@@ -1,5 +1,6 @@
 import { activeAudio } from "../core/audioPlan";
-import { framingIssues } from "../core/framing";
+import { framingIssues, type FrameIssue } from "../core/framing";
+import { sceneNotes } from "../core/pacing";
 import { animStatus, assetStatus, type Img } from "../core/kit";
 import { actorName, fxName, labelOf, shotName } from "../core/labels";
 import { moveLabel } from "../core/moves";
@@ -7,7 +8,7 @@ import { missingReport } from "../core/missing";
 import type { Project } from "../core/project";
 import { actorFocus, frameZoom, fxEnd, newFxDur, renderFrame } from "../core/render";
 import { unzoom, zoomFrame, zoomView } from "../core/raster";
-import { pose, shotAt } from "../core/acting";
+import { actionSpan, pose, shotAt } from "../core/acting";
 import { charFrames } from "../core/frames";
 import { validateTimeline } from "../core/timeline";
 import type { Actor, Timeline } from "../core/types";
@@ -25,7 +26,7 @@ import { renderInspector } from "./inspector";
 import { emptyTimeline } from "./scene";
 import type { Step } from "./steps";
 import {
-  FPS, History, addAction, addEntry, deleteEntry, find, moveEntry, moveShotEdge, newId, resizeEntry, setField, snap, splitShot, insertShot, panShot, transition, type EditResult,
+  FPS, History, addAction, addEntry, deleteEntry, find, lanes, moveEntry, moveShotEdge, newId, playhead, resizeEntry, setField, snap, splitShot, insertShot, panShot, transition, type EditResult,
 } from "./timelineEditor";
 
 const ACTIONS_MENU = ["idle", "walk", "move", "look_around", "startle", "hurt", "dust", "say"];
@@ -146,8 +147,9 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     if (T.shots.length) renderFrame(inp, t, frame);
     else frame.px.fill(0);
     const z = T.shots.length ? frameZoom(inp, t) : null;
-    if (z) zoomFrame(frame, z.z, z.x, z.y, 1, zoomed);
-    view = z ? zoomView(W, H, z.z, z.x, z.y, 1) : null;
+    // stepped like the export, so the preview zooms at the same moments
+    if (z) zoomFrame(frame, z.z, z.x, z.y, 1, zoomed, p.canvas.exportScale);
+    view = z ? zoomView(W, H, z.z, z.x, z.y, 1, p.canvas.exportScale) : null;
     g.putImageData(new ImageData(z ? zoomed : frame.px, W, H), 0, 0);
     $("[data-testid=timecode]").innerHTML = `<b>${t.toFixed(2)}</b> / ${T.duration.toFixed(2)} s <span class="muted">· frame ${Math.round(t * FPS)}</span>`;
     tracks.style.setProperty("--p", String(t / T.duration));
@@ -161,18 +163,28 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   const bufs = new Map<string, AudioBuffer>(); // by clip id
   const voices = new Map<string, AudioBufferSourceNode>(); // by audio entry id
   const has = (path: string) => p.files.has(path);
-  async function loadAudio() {
-    ctx ??= new AudioContext();
-    await ctx.resume();
+  // decodes every usable clip not decoded yet; an offline context needs no click, so the bars get their length on open
+  async function decodeClips(c: BaseAudioContext, quiet: boolean) {
+    let learnt = false;
     for (const e of tl().audio) {
       const a = p.kit.assets[e.clip];
       if (bufs.has(e.clip) || !a || assetStatus(p.kit, e.clip, false, has) !== "ok") continue;
       try {
-        bufs.set(e.clip, await decodeAudio(ctx, p, a.path));
+        const b = await decodeAudio(c, p, a.path);
+        bufs.set(e.clip, b);
+        const len = Math.round(b.duration * 100) / 100;
+        if (a.len !== len) (a.len = len), (learnt = true); // voice bubbles last as long as their clip
       } catch {
-        toast(`Could not play ${e.clip}: the file is not audio this browser can read.`, "error");
+        if (!quiet) toast(`Could not play ${e.clip}: the file is not audio this browser can read.`, "error");
       }
     }
+    if (learnt) changed();
+  }
+  const clipLengths = () => decodeClips(new OfflineAudioContext(2, 1, 48000), true).then(() => draw());
+  async function loadAudio() {
+    ctx ??= new AudioContext();
+    await ctx.resume();
+    await decodeClips(ctx, false);
   }
   function syncAudio() {
     if (!ctx) return;
@@ -219,7 +231,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   function tick() {
     if (!playing) return;
     if (!canvas.isConnected) return pause();
-    t = t0 + (performance.now() - wall0) / 1000;
+    t = playhead(t0, performance.now() - wall0);
     if (t >= tl().duration) {
       t = tl().duration;
       pause();
@@ -260,26 +272,30 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   $<HTMLButtonElement>("[data-act=undo]").onclick = () => travel(hist.undo(tl()));
   $<HTMLButtonElement>("[data-act=redo]").onclick = () => travel(hist.redo(tl()));
   $<HTMLButtonElement>("[data-act=next]").onclick = () => go(4);
+  // A 2 s close-up on actor a at `at`: a zoom on them, sized so they fill most of the frame's height. Null off a wide shot.
+  function focusAt(T: Timeline, a: Actor, at: number) {
+    const cam = camNow(T, at);
+    const q = pose(a, at, charFrames(p.kit, imgOf, false, has));
+    if (!q?.img || !cam) return null;
+    return { ...actorFocus(q as Parameters<typeof actorFocus>[0], cam), z: Math.max(2, Math.min(4, Math.floor((H * 0.9) / q.img.h))) };
+  }
+  function closeUpOn(T: Timeline, a: Actor, at: number): EditResult | null {
+    const f = focusAt(T, a, at);
+    return f && insertShot(T, at, 2, { zoom: { from: f.z, to: f.z, x: Math.round(f.x), y: Math.round(f.y), actor: a.id } });
+  }
   // ---- + Shot: cuts, close-ups, pans, zooms and transitions, all at the playhead
   const shotBtn = $<HTMLButtonElement>("[data-act=shot]");
   shotBtn.onclick = () => {
     const T = tl(), at = snap(t), cam = camNow(T, at);
-    const frames = charFrames(p.kit, imgOf, false, has);
     const wideOnly = (f: () => EditResult) => () => (cam ? f() : { tl: T, error: "Move the playhead to a wide shot first (close-ups have no camera)." });
     const items: [string, () => EditResult][] = [];
     items.push(["Cut here", () => {
       const s = T.shots.find((x) => at > x.start && at < x.end);
       return s ? splitShot(T, s.id, at) : { tl: T, error: "Move the playhead inside a shot to cut it." };
     }]);
-    // a close-up is a zoom on the character, sized so they fill most of the frame's height
-    const focusOn = (a: Actor) => {
-      const q = pose(a, at, frames);
-      if (!q?.img || !cam) return null;
-      return { ...actorFocus(q as Parameters<typeof actorFocus>[0], cam), z: Math.max(2, Math.min(4, Math.floor((H * 0.9) / q.img.h))) };
-    };
     for (const a of T.actors) {
-      const f = focusOn(a);
-      if (f) items.push([`Close-up on ${actorName(T, a.id)}`, () => insertShot(T, at, 2, { zoom: { from: f.z, to: f.z, x: Math.round(f.x), y: Math.round(f.y), actor: a.id } })]);
+      const r = closeUpOn(T, a, at);
+      if (r) items.push([`Close-up on ${actorName(T, a.id)}`, () => r]);
     }
     for (const [face, exprs] of Object.entries(p.kit.faces))
       for (const expr of Object.keys(exprs)) items.push([`Close-up portrait: ${face} · ${expr}`, () => insertShot(T, at, 2, { type: "closeup", face, expr })]);
@@ -288,6 +304,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const k = sh?.type === "wide" ? (sh.bg_scale ?? 1) : 1;
     const extra = { x: bg ? bg.w * k - W : 0, y: bg ? bg.h * k - H : 0 };
     for (const d of ["left", "right", "up", "down"] as const) items.push([`Pan ${d}`, wideOnly(() => panShot(T, at, d, extra))]);
+    const focusOn = (a: Actor) => focusAt(T, a, at);
     const sel = T.actors.find((a) => a.id === selected);
     const zf = (sel && focusOn(sel)) || { x: W / 2, y: H / 2 };
     const on = sel ? ` on ${actorName(T, sel.id)}` : "";
@@ -484,15 +501,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       if (aim) {
         const id = f!.id, deg = aimAngle(f!, cam, q.x, q.y);
         if (deg === (f!.angle ?? 0)) return paint();
-        queue = queue
-          .then(async () => {
-            toast("Aiming…");
-            await new Promise((r) => setTimeout(r, 30)); // let the toast paint before the bake blocks the page
-            commit(await rebakeFx(p, tl(), id, deg), id);
-            await loadImgs();
-          })
-          .catch((err: Error) => void toast(`Could not aim that: ${err.message}`, "error"));
-        return;
+        return aimTo(id, deg);
       }
       const r = moveBy(T0, target!, q.x - c.x, q.y - c.y, groundAt(T0, t));
       if (r.error) return void (toast(r.error, "error"), draw());
@@ -527,6 +536,12 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         const step = (e.shiftKey ? 1 / FPS : 1) * (e.key === "ArrowLeft" ? -1 : 1);
         seek(snap(t + step));
+      } else if (e.key === "Home" || e.key === "End") seek(e.key === "Home" ? 0 : tl().duration);
+      else if (e.key === "[" && selected) commit(moveEntry(tl(), selected, t)); // the bar starts here
+      else if (e.key === "]" && selected) { // the bar ends here
+        const at = find(tl(), selected);
+        const t0 = at && "t" in at.e ? Number(at.e.t) : NaN;
+        if (t > t0) commit(resizeEntry(tl(), selected, t - t0));
       } else if ((e.key === "Delete" || e.key === "Backspace") && selected) commit(deleteEntry(tl(), selected), null);
       else return;
       e.preventDefault();
@@ -535,11 +550,11 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   );
 
   // ---- tracks
-  function bar(id: string, label: string, start: number, dur: number | undefined, opts: { grip?: boolean; warn?: boolean; locked?: boolean; cls?: string }) {
+  function bar(id: string, label: string, start: number, dur: number | undefined, opts: { grip?: boolean; warn?: boolean; locked?: boolean; cls?: string; lane?: number }) {
     const D = tl().duration;
     const cls = ["clip", opts.cls ?? "", id === selected ? "sel" : "", opts.warn ? "warn" : "", opts.locked ? "locked" : ""].join(" ");
     const w = dur ? `width:${pct(dur / D)}` : "";
-    return `<div class="${cls}" data-id="${esc(id)}" style="left:${pct(start / D)};${w}" title="${esc(labelOf(tl(), p.kit, id))}">
+    return `<div class="${cls}" data-id="${esc(id)}" style="left:${pct(start / D)};${w};--k:${opts.lane ?? 0}" title="${esc(labelOf(tl(), p.kit, id))}">
       <span>${esc(label)}</span>${opts.grip ? `<i class="grip" aria-hidden="true"></i>` : ""}</div>`;
   }
   function drawTracks() {
@@ -549,27 +564,40 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     const ticks = Array.from({ length: Math.ceil(D) }, (_, s) => `<span class="tick" style="left:${pct(s / D)}">${s}</span>`).join("");
     const shots = T.shots.map((s) => bar(s.id, shotName(T, s.id), s.start, s.end - s.start, { cls: "shot", warn: warn.has(s.id), locked: s.locked })).join("")
       + T.shots.slice(0, -1).map((s, i) => `<i class="edge" data-a="${esc(s.id)}" data-b="${esc(T.shots[i + 1].id)}" style="left:${pct(s.end / D)}" title="Drag to move the cut"></i>`).join("");
-    const row = (label: string, lane: string, attrs = "", sel = false, cls = "") =>
-      `<div class="track ${cls}"><div class="track-label${sel ? " sel" : ""}" ${attrs}>${label}</div><div class="lane" ${attrs}>${lane}</div></div>`;
-    const actors = T.actors.map((a) =>
-      row(
+    const row = (label: string, lane: string, attrs = "", sel = false, cls = "", n = 1) =>
+      `<div class="track ${cls}"${n > 1 ? ` style="min-height:${4 + n * 26}px"` : ""}><div class="track-label${sel ? " sel" : ""}" ${attrs}>${label}</div><div class="lane" ${attrs}>${lane}</div></div>`;
+    // bars that overlap stack in lanes; a short bar counts as 44 px wide so its label shows
+    const minS = (D * 44) / Math.max(200, tracks.clientWidth - 92);
+    const stack = (items: { t: number; len?: number }[]) => {
+      const k = lanes(items, minS);
+      return { k, n: Math.max(1, ...k.map((x) => x + 1)) };
+    };
+    const frames = charFrames(p.kit, imgOf, false, has); // bars without a "dur" are as long as what plays
+    const actors = T.actors.map((a) => {
+      const spans = a.actions.map((x) => ({ t: x.t, len: actionSpan(x, a.char, frames) }));
+      const { k, n } = stack(spans);
+      return row(
         `<span class="who">${esc(actorName(T, a.id))}</span><button class="row-add" type="button" data-add="${esc(a.id)}" aria-haspopup="menu" aria-expanded="false" aria-label="Add a move for ${esc(actorName(T, a.id))}" title="Add a move at the playhead">+</button>`,
-        a.actions.map((x) => bar(x.id, x.do === "say" ? `“${x.text ?? ""}”` : moveLabel(x.do), x.t, x.dur, { grip: x.dur !== undefined, warn: warn.has(x.id), locked: x.locked })).join(""),
+        a.actions.map((x, i) => bar(x.id, x.do === "say" ? `“${x.text ?? ""}”` : moveLabel(x.do), x.t, spans[i].len, { grip: x.dur !== undefined, warn: warn.has(x.id), locked: x.locked, lane: k[i] })).join(""),
         `data-actor="${esc(a.id)}" title="Double-click the lane to add an action"`,
-        a.id === selected,
-      )).join("");
-    const fx = T.fx.map((f) => {
-      const meta = p.kit.assets[f.fx]?.fx;
-      const len = meta ? fxEnd(f, meta, D) - f.t : f.dur; // the bar covers exactly what plays
-      return bar(f.id, fxName(p.kit, f.fx), f.t, len, { grip: true, warn: warn.has(f.id), locked: f.locked, cls: "fx" });
+        a.id === selected, "", n,
+      );
     }).join("");
-    const audio = T.audio.map((s) => bar(s.id, s.line ? `${s.clip} “${s.line}”` : s.clip, s.t, bufs.get(s.clip)?.duration, { warn: warn.has(s.id), locked: s.locked, cls: s.kind })).join("");
+    const fxSpans = T.fx.map((f) => {
+      const meta = p.kit.assets[f.fx]?.fx;
+      return { t: f.t, len: meta ? fxEnd(f, meta, D) - f.t : f.dur }; // the bar covers exactly what plays
+    });
+    const fxLanes = stack(fxSpans);
+    const fx = T.fx.map((f, i) => bar(f.id, fxName(p.kit, f.fx), f.t, fxSpans[i].len, { grip: true, warn: warn.has(f.id), locked: f.locked, cls: "fx", lane: fxLanes.k[i] })).join("");
+    const auSpans = T.audio.map((s) => ({ t: s.t, len: bufs.get(s.clip)?.duration }));
+    const auLanes = stack(auSpans);
+    const audio = T.audio.map((s, i) => bar(s.id, s.line ? `${s.clip} “${s.line}”` : s.clip, s.t, auSpans[i].len, { warn: warn.has(s.id), locked: s.locked, cls: s.kind, lane: auLanes.k[i] })).join("");
     tracks.innerHTML = `
       ${row("", ticks, `data-ruler="1" title="Click or drag to move the playhead"`, false, "ruler")}
       ${row("Shots", shots)}
       ${actors || row(`<span class="small">No actors</span>`, `<span class="lane-hint">Drag a character in from Cast on the left</span>`)}
-      ${row("Effects", fx)}
-      ${row("Audio", audio)}
+      ${row("Effects", fx, "", false, "", fxLanes.n)}
+      ${row("Audio", audio, "", false, "", auLanes.n)}
       <div class="playhead" aria-hidden="true"></div>`;
     tracks.style.setProperty("--p", String(t / D));
   }
@@ -744,6 +772,16 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
       .catch((err: Error) => void toast(`Could not change that: ${err.message}`, "error"));
   };
   // a flame (or any library effect that takes it) re-baked to carry further; one undo step
+  const aimTo = (fxId: string, deg: number) => {
+    queue = queue
+      .then(async () => {
+        toast("Aiming…");
+        await new Promise((r) => setTimeout(r, 30)); // let the toast paint before the bake blocks the page
+        commit(await rebakeFx(p, tl(), fxId, deg), fxId);
+        await loadImgs();
+      })
+      .catch((err: Error) => void toast(`Could not aim that: ${err.message}`, "error"));
+  };
   const reachTo = (fxId: string, reach: number) => {
     queue = queue
       .then(async () => {
@@ -761,8 +799,8 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
     drawTracks();
     drawDrawer();
     const errs = validateTimeline(T);
-    const kitChanged = () => (changed(), loadImgs().then(draw));
-    renderInspector($(".inspector"), T, selected, { kit: p.kit, project: p, now: () => t, errors: errs, kitChanged, move: moveTo, reach: reachTo }, (r, sel) => commit(r, sel), (id) => commit(deleteEntry(tl(), id), null));
+    const kitChanged = () => (changed(), loadImgs().then(draw), void clipLengths());
+    renderInspector($(".inspector"), T, selected, { kit: p.kit, project: p, now: () => t, errors: errs, kitChanged, move: moveTo, reach: reachTo, aim: aimTo }, (r, sel) => commit(r, sel), (id) => commit(deleteEntry(tl(), id), null));
     renderApprovals($(".needs-box"), p, (r) => commit(r), kitChanged, moveTo);
     drawFraming();
     drawStatus();
@@ -774,9 +812,19 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   // Black gaps around a background, actors cut by an edge: worth a look, never a block on export.
   function drawFraming() {
     const box = $(".frame-box");
-    const issues = framingIssues(tl(), p.kit, (k) => imgs.get(k) ?? null, W, H);
+    const T = tl();
+    const issues: (FrameIssue & { fix?: [string, () => EditResult | null] })[] = framingIssues(T, p.kit, (k) => imgs.get(k) ?? null, W, H);
+    for (const n of sceneNotes(T)) {
+      const a = T.actors.find((x) => x.id === n.id);
+      const fix: [string, () => EditResult | null] | undefined =
+        n.kind === "still" && a ? [`Add a look around for ${actorName(T, a.id)}`, () => addAction(tl(), a.id, { t: snap(n.at + 0.5), do: "look_around", dur: 2 })]
+        : n.kind === "long" ? ["Cut it in two", () => splitShot(tl(), n.id, snap(n.at))]
+        : n.kind === "talk" && a ? [`Close-up on ${actorName(T, a.id)}`, () => closeUpOn(tl(), a, snap(n.at))]
+        : undefined;
+      issues.push({ id: n.id, at: n.at, msg: n.msg, fix });
+    }
     box.hidden = !issues.length;
-    box.innerHTML = `<h2>Check the framing</h2><ul class="needs"></ul>`;
+    box.innerHTML = `<h2>Check the scene</h2><ul class="needs"></ul>`;
     for (const f of issues) {
       const li = document.createElement("li");
       li.append(Object.assign(document.createElement("span"), { textContent: f.msg }));
@@ -789,6 +837,17 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
         fill.title = `Set bg scale to ${f.fill}`;
         fill.onclick = () => commit(setField(tl(), f.id, "bg_scale", f.fill), f.id);
         acts.append(fill);
+      }
+      if (f.fix) {
+        const [label, run] = f.fix;
+        const b = Object.assign(document.createElement("button"), { type: "button", className: "btn quiet", textContent: label });
+        b.onclick = () => {
+          const r = run();
+          if (!r) return toast("Move to a wide shot where they are on screen first.", "error");
+          t = f.at;
+          commit(r, r.id ?? f.id);
+        };
+        acts.append(b);
       }
       li.append(acts);
       box.querySelector("ul")!.append(li);
@@ -814,4 +873,5 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   draw();
   fit();
   loadImgs();
+  void clipLengths();
 }

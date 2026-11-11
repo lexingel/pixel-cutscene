@@ -7,7 +7,7 @@ import type { Project } from "../core/project";
 import { SIZE_NAMES, mediumHeight, sizePlan } from "../core/sizes";
 import { confirmDialog } from "./dialogs";
 import {
-  COST, MOTION, SIZES, approvePiece, approveRef, balance, genAnimInto, genBackgroundInto, genCharacter, genFaceInto, refPath, type At,
+  COST, MOTION, SIZES, approvePiece, approveRef, balance, genAnimInto, genBackgroundInto, genCharacter, genCharacterV3, genFaceInto, refPath, type At,
 } from "../gen/pixellab";
 import { decode, encode, playing } from "./cast";
 import { toast } from "./dialogs";
@@ -68,7 +68,7 @@ export function genPlan(p: Project, t: At & { asset?: string }): { label: string
   const hasRef = p.files.has(refPath(char)) || !!p.kit.chars[char]?.anims.idle?.frames.length;
   if (t.kind === "anim" && !hasRef) return { label: "Generate", why: `${char} needs a reference first: generate it in ② Cast or upload its idle frames` };
   if (t.kind === "face" && !hasRef) return { label: "Generate", why: `${char} needs idle frames before it can get a face` };
-  if (t.kind === "asset" && t.asset !== "bg") return { label: "Generate", why: "Effects and sounds are generated in a later update" };
+  if (t.kind === "asset" && t.asset !== "bg") return { label: "Generate", why: t.asset === "fx" ? "Effects come from the library: press Pick from library" : "Sounds are generated with ElevenLabs" };
   return { label: "Generate" };
 }
 
@@ -82,7 +82,7 @@ export function generate(p: Project, t: At & { asset?: string }, done: () => voi
   // attack and breathe are written out in a prompt the user may edit before paying
   const motion = t.kind === "anim" && (t.anim === "attack" || t.anim === "breathe") ? { text: MOTION[t.anim] } : undefined;
   const ok =
-    t.kind === "anim" ? paid(genAction(t), COST.anim, 1, async (k, tk) => {
+    t.kind === "anim" ? paid(genAction(t), p.kit.chars[t.char]?.pl ? COST.animV3 : COST.anim, 1, async (k, tk) => {
         await genAnimInto(p, k, t.char, t.anim, "", tk, undefined, motion?.text.trim() || undefined, opts);
         if (t.anim === "breathe" && p.tl) p.tl = await replaceFlames(p, p.tl, t.char); // the mouth moved
       }, motion)
@@ -128,6 +128,7 @@ export function renderGenChar(
   let size = 64;
   let sugg: { size: SizeName; scale: 1 | 2 } | null = null; // a size picked from the suggestions
   let cands: Img[] = [];
+  let ids: string[] = []; // PixelLab character ids, when the candidates are PixelLab characters
   let pick = -1;
 
   main.innerHTML = `<header><h1>Generate with PixelLab</h1><p class="hint">Describe a side-view character, pick one of four, approve it, then approve its idle animation.</p></header>
@@ -140,6 +141,7 @@ export function renderGenChar(
       <label class="field">Description <input name="desc" autocomplete="off" placeholder="a knight in dented armour with a red cape" /></label>
       <label class="field">Size <select name="size">${SIZES.map((s) => `<option value="${s}">${s} px</option>`).join("")}</select></label>
       <p class="small size-note"></p>
+      <label class="field check"><input type="checkbox" name="v3" /> Same body in every move (beta): a PixelLab character that walk, attack and hurt are posed from. People-shaped only; about 2 generations per candidate.</label>
       <details class="size-sugg"><summary>Suggest a size…</summary><div class="row wrap"></div></details>
       <div class="row end foot"><button class="btn primary" type="button" data-act="cands">Generate 4 candidates</button></div>`;
     const f = (n: string) => form.querySelector<HTMLInputElement>(`[name=${n}]`)!;
@@ -197,8 +199,12 @@ export function renderGenChar(
       if (!name || /[/\\]/.test(name)) return toast("Give the character a name without slashes.", "error");
       if (p.kit.chars[name]) return toast(`${name} is already in the cast. Pick another name.`, "error");
       if (!desc) return toast("Describe the character first.", "error");
-      const ok = await busy(main, () => paid(`Generate 4 candidates for ${name}`, COST.character, 4, async (k, t) => {
-        cands = await genCharacter(k, desc, size, t);
+      const v3 = f("v3").checked;
+      const ok = await busy(main, () => paid(`Generate 4 candidates for ${name}`, v3 ? COST.characterV3 : COST.character, 4, async (k, t) => {
+        if (v3) {
+          const r = await genCharacterV3(k, desc, size, t);
+          (cands = r.map((c) => c.img)), (ids = r.map((c) => c.id));
+        } else (cands = await genCharacter(k, desc, size, t)), (ids = []);
       }));
       if (ok) (pick = -1), drawCands();
     };
@@ -226,7 +232,7 @@ export function renderGenChar(
     body.querySelector<HTMLButtonElement>("[data-act=redo]")!.onclick = () => form.querySelector<HTMLButtonElement>("[data-act=cands]")!.click();
     approve.onclick = async () => {
       try {
-        await approveRef(p, name, cands[pick], undefined, sugg ? { size: sugg.size, scale: sugg.scale === 2 ? 2 : undefined } : {});
+        await approveRef(p, name, cands[pick], undefined, { ...(sugg ? { size: sugg.size, scale: sugg.scale === 2 ? 2 : undefined } : {}), ...(ids[pick] && { pl: ids[pick] }) });
       } catch (e) {
         return toast((e as Error).message, "error");
       }
@@ -262,7 +268,7 @@ export function renderGenChar(
       acts.append(b);
     };
     const gen = async () => {
-      if (await busy(main, () => paid(`Generate ${name}'s idle`, COST.anim, 1, (k, t) => genAnimInto(p, k, name, "idle", desc, t)))) changed(), drawIdle();
+      if (await busy(main, () => paid(`Generate ${name}'s idle`, p.kit.chars[name]?.pl ? COST.animV3 : COST.anim, 1, (k, t) => genAnimInto(p, k, name, "idle", desc, t)))) changed(), drawIdle();
     };
     if (!idle) return btn("Generate idle", "primary", gen);
     btn("Redo", "quiet", gen);

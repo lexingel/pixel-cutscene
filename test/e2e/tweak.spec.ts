@@ -378,3 +378,73 @@ test("a flame's reach stretches it in one undo step", async ({ page }) => {
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(fx).toHaveAttribute("data-asset", "fire-breath");
 });
+
+test("keys: Home and End jump to the ends; [ and ] set the selected bar's start and end at the playhead", async ({ page }) => {
+  await openFixture(page);
+  await page.getByRole("button", { name: "③ Tweak" }).click();
+  await page.keyboard.press("End");
+  await expect(page.getByTestId("timecode")).toContainText("frame 150");
+  await page.keyboard.press("Home");
+  await expect(page.getByTestId("timecode")).toContainText("frame 0");
+  await page.locator("[data-id=a1]").click(); // the walk, 1 s to 3 s
+  await page.keyboard.press("Home"); // the click may have moved the playhead
+  for (let i = 0; i < 2; i++) await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("BracketLeft");
+  await expect(page.getByLabel("t (s)", { exact: true })).toHaveValue("2");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight"); // 4 s
+  await page.keyboard.press("BracketRight");
+  await expect(page.getByLabel("dur (s)", { exact: true })).toHaveValue("2");
+});
+
+test("scene notes: a still stretch is noted, and one click adds a look around", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("input[accept*=zip]").waitFor({ state: "attached" });
+  await page.evaluate(async () => {
+    const { newProject, toZip } = await import("/src/core/project.ts" as string);
+    const p = newProject("Still scene");
+    p.step = 3;
+    p.tl = {
+      name: "t", duration: 10, shots: [{ id: "s1", type: "wide", start: 0, end: 10, bg_scale: 1, camera: [{ t: 0, x: 0, y: 0 }] }],
+      actors: [{ id: "h1", char: "hero", x: 50, y: 100, actions: [] }], audio: [], fx: [],
+    };
+    const dt = new DataTransfer();
+    dt.items.add(new File([await toZip(p)], "s.zip", { type: "application/zip" }));
+    const input = document.querySelector<HTMLInputElement>("input[accept*=zip]")!;
+    input.files = dt.files;
+    input.dispatchEvent(new Event("change"));
+  });
+  await expect(page.getByLabel("Project name")).toHaveValue("Still scene");
+  await page.getByRole("button", { name: "③ Tweak" }).click();
+  const box = page.getByTestId("framing");
+  await expect(box).toContainText("Nothing moves from 1.0 s to 10.0 s.");
+  await box.getByRole("button", { name: /Add a look around/ }).click();
+  await expect(box).toContainText("Nothing moves from 3.5 s to 10.0 s."); // 1.5-3.5 now moves
+});
+
+test("overlapping bars stack in lanes, so a short Hurt is not hidden under Turn to dust", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/");
+  await page.locator("input[accept*=zip]").waitFor({ state: "attached" });
+  await page.evaluate(async () => {
+    const { newProject, toZip } = await import("/src/core/project.ts" as string);
+    const p = newProject("Lanes");
+    p.step = 3;
+    p.tl = {
+      name: "t", duration: 10, shots: [{ id: "s1", type: "wide", start: 0, end: 10, bg_scale: 1, camera: [{ t: 0, x: 0, y: 0 }] }],
+      actors: [{ id: "h1", char: "hero", x: 50, y: 100, actions: [{ id: "a1", t: 2, do: "hurt" }, { id: "a2", t: 2.1, do: "dust", dur: 1.5 }] }],
+      audio: [], fx: [],
+    };
+    const dt = new DataTransfer();
+    dt.items.add(new File([await toZip(p)], "l.zip", { type: "application/zip" }));
+    const input = document.querySelector<HTMLInputElement>("input[accept*=zip]")!;
+    input.files = dt.files;
+    input.dispatchEvent(new Event("change"));
+  });
+  await expect(page.getByLabel("Project name")).toHaveValue("Lanes");
+  await page.getByRole("button", { name: "③ Tweak" }).click();
+  const hurt = await page.locator('.clip[data-id="a1"]').boundingBox();
+  const dust = await page.locator('.clip[data-id="a2"]').boundingBox();
+  expect(dust!.y).toBeGreaterThanOrEqual(hurt!.y + hurt!.height); // under it, not on top
+  await page.locator(".tracks").screenshot({ path: "test-results/lanes.png" });
+});

@@ -19,7 +19,7 @@ export const ITEM_MIME = "application/x-pcs-item";
 const SIZE = 48;
 
 /** An image fitted into a 48x48 pixelated canvas (whole-number scale up, shrunk to fit when larger). */
-function paintThumb(c: HTMLCanvasElement, img: Img): void {
+export function paintThumb(c: HTMLCanvasElement, img: Img): void {
   const src = document.createElement("canvas");
   src.width = img.w;
   src.height = img.h;
@@ -86,7 +86,7 @@ function itemButton(label: string, it: DrawerItem, onAdd: (it: DrawerItem, at: D
   return b;
 }
 
-const thumbCanvas = () => el("canvas", { width: SIZE, height: SIZE, className: "px d-thumb" });
+export const thumbCanvas = () => el("canvas", { width: SIZE, height: SIZE, className: "px d-thumb" });
 
 /** Left drawer: Cast, Effects and Sound and Music, each item draggable and addable with Enter. */
 export function renderDrawer(host: HTMLElement, p: Project, onAdd: (it: DrawerItem, at: DropAt) => void): void {
