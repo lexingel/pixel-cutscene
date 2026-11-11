@@ -50,7 +50,7 @@ export function generateAudio(p: Project, id: string, usedBy: string, kind: stri
   const ok = plan.line
     ? paid(`Generate voice line ${id.replace(/[_-]+/g, " ")}`, speakCost(plan.line), (k, t) => speakInto(p, k, id, plan.line!, plan.voice!, t))
     : paid(`Generate sound ${id.replace(/[_-]+/g, " ")}`, sfxCost(plan.seconds!), (k, t) => sfxInto(p, k, id, plan.prompt!, plan.seconds!, t));
-  return ok.then((r) => (r && (toast("Generated. Listen, then Approve or Redo."), done()), r));
+  return ok.then((r) => (r && (toast("Generated. Listen, then Approve or Try again."), done()), r));
 }
 
 // Voices of this key, fetched once (free read).

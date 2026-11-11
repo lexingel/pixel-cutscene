@@ -90,7 +90,7 @@ export function generate(p: Project, t: At & { asset?: string }, done: () => voi
       }, motion)
     : t.kind === "face" ? paid(genAction(t), COST.face, 1, (k, tk) => genFaceInto(p, k, t.face, t.expr, tk))
     : paid(genAction(t), COST.background, 1, (k, tk) => genBackgroundInto(p, k, t.id, `side-view game background, ${words(t.id)}`, tk));
-  return ok.then((r) => (r && (toast("Generated. Look it over, then Approve or Redo."), done()), r));
+  return ok.then((r) => (r && (toast("Generated. Look it over, then Approve or Try again."), done()), r));
 }
 
 /** A new background for a wide shot from a short description (no story, no characters); it lands unapproved and the
@@ -108,7 +108,7 @@ export async function generateShotBg(p: Project, shotId: string, apply: (bg: str
   }, desc);
   if (!ok || !made) return null;
   apply(made);
-  toast("Generated. Look it over in Needs approval, then Approve or Redo.");
+  toast("Generated. Look it over in Needs approval, then Approve or Try again.");
   return made;
 }
 

@@ -16,7 +16,7 @@ import { useLibraryFx } from "../core/fxLibrary";
 import { audioPlan, elevenKey, generateAudio } from "./eleven";
 import { busy, generate, genAction, genPlan, pixellabKey, words, NO_KEY } from "./pixellab";
 import { isRunning } from "./inflight";
-import { generateAll, planAll } from "./genAll";
+import { generateAll, planAll, retryCost } from "./genAll";
 
 // moves the user can add before they exist: they land here to be generated
 const GENERATABLE = ["anim:attack", "anim:breathe"];
@@ -90,19 +90,52 @@ export async function useOwnFiles(p: Project, t: Target, files: File[]): Promise
   }
 }
 
-/** A generated piece waiting for the user's verdict; Redo is off when the piece cannot be regenerated here. */
-export function pieceRow(label: string, preview: HTMLElement, onApprove: () => void, onRedo: (() => void) | null): HTMLElement {
+/** A generated piece waiting for the user's verdict; Try again is off when the piece cannot be regenerated here. */
+export function pieceRow(label: string, preview: HTMLElement, onApprove: () => void, onRedo: (() => void) | null, cost: string | null = null, onReject?: () => void): HTMLElement {
   const el = document.createElement("div");
   el.className = "piece";
-  el.innerHTML = `<div class="piece-preview"></div><div class="row"><span class="small grow"></span>
-    <button class="btn quiet" type="button" data-act="redo">Redo</button><button class="btn primary" type="button" data-act="approve">Approve</button></div>`;
+  el.innerHTML = `<div class="piece-preview"></div><div class="row wrap"><span class="small grow"></span>
+    <button class="btn quiet" type="button" data-act="reject">Reject</button><button class="btn quiet" type="button" data-act="redo">Try again</button><button class="btn primary" type="button" data-act="approve">Approve</button></div>`;
   el.querySelector(".piece-preview")!.append(preview);
   el.querySelector(".small")!.textContent = label;
   el.querySelector<HTMLButtonElement>("[data-act=approve]")!.onclick = onApprove;
+  const reject = el.querySelector<HTMLButtonElement>("[data-act=reject]")!;
+  if (onReject) reject.onclick = onReject;
+  else reject.remove();
   const redo = el.querySelector<HTMLButtonElement>("[data-act=redo]")!;
   redo.disabled = !onRedo;
   if (onRedo) redo.onclick = onRedo;
+  if (onRedo && cost) el.append(Object.assign(document.createElement("span"), { className: "small cost", textContent: `Try again: ${cost}` }));
   return el;
+}
+
+// This session's verdicts. A rejected piece is keyed by the piece object, so a new try (a new object) starts clean;
+// approved pieces leave the list but keep a quiet check under it until the page reloads.
+const rejected = new WeakSet<object>();
+const approvedLog = new WeakMap<Project, { what: string; cat: Cat }[]>();
+
+function markRejected(li: HTMLElement): void {
+  li.classList.add("rejected");
+  const tag = li.querySelector<HTMLElement>(".tag")!;
+  tag.textContent = "rejected";
+  tag.className = "tag rejected";
+  li.querySelector("[data-act=reject]")?.remove();
+}
+
+function approvedList(host: HTMLElement, p: Project): void {
+  const log = approvedLog.get(p) ?? [];
+  if (!log.length) return;
+  const ul = Object.assign(document.createElement("ul"), { className: "approved-list" });
+  ul.setAttribute("data-testid", "approved");
+  ul.setAttribute("aria-label", "Approved this session");
+  for (const a of log) {
+    const li = document.createElement("li");
+    li.dataset.cat = a.cat;
+    li.innerHTML = `<span class="check" aria-hidden="true">✓</span><span class="grow"></span><span class="small">approved</span>`;
+    li.querySelector(".grow")!.textContent = words(a.what);
+    ul.append(li);
+  }
+  host.append(ul);
 }
 
 // Actions this one can turn into without needing anything new.
@@ -146,6 +179,7 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
     list.before(Object.assign(document.createElement("p"), { className: "small row wrap gen-all", textContent: `${cost}. ` }));
     host.querySelector(".gen-all")!.append(b);
   }
+  approvedList(host, p);
   if (!rows.length) {
     list.innerHTML = `<li class="done small">Nothing missing. Every piece is in and approved, so this is ready to export.</li>`;
     return;
@@ -166,7 +200,10 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
     // one run per row: while it is in flight every control on the row is off
     const aud = t?.kind === "asset" && isAudio(t) ? t : null;
     const regen = () => void (t && busy(li, () => (aud ? generateAudio(p, aud.id, r.used_by, aud.asset, kitChanged) : generate(p, t, kitChanged))));
-    if (r.why === "unapproved" && t) li.insertBefore(review(p, t, r.used_by, kitChanged, regen), acts);
+    if (r.why === "unapproved" && t) {
+      li.insertBefore(review(p, t, r, li, kitChanged, regen), acts);
+      if (li.querySelector(".piece") && rejectedPiece(p, t)) markRejected(li);
+    }
 
     const plan = aud ? audioPlan(p, r.used_by, aud.asset) : t ? genPlan(p, t) : { label: "Generate", why: "Nothing to generate for this row" };
     // still running from before a re-render: stays off until it lands (the list re-renders then)
@@ -232,8 +269,16 @@ export function renderApprovals(host: HTMLElement, p: Project, apply: (r: EditRe
 }
 
 // Preview + Approve for an unapproved piece already in the kit.
-function review(p: Project, t: Target, usedBy: string, kitChanged: () => void, regen: () => void): HTMLElement {
-  const piece = t.kind === "anim" ? p.kit.chars[t.char]?.anims[t.anim] : t.kind === "face" ? p.kit.faces[t.face]?.[t.expr] : p.kit.assets[t.id];
+const pieceOf = (p: Project, t: Target) =>
+  t.kind === "anim" ? p.kit.chars[t.char]?.anims[t.anim] : t.kind === "face" ? p.kit.faces[t.face]?.[t.expr] : p.kit.assets[t.id];
+const rejectedPiece = (p: Project, t: Target) => {
+  const piece = pieceOf(p, t);
+  return !!piece && rejected.has(piece);
+};
+
+function review(p: Project, t: Target, r: Row, li: HTMLElement, kitChanged: () => void, regen: () => void): HTMLElement {
+  const usedBy = r.used_by;
+  const piece = pieceOf(p, t);
   // an animation plays, so its motion can be judged before approving
   const paths = piece ? ("frames" in piece ? piece.frames : [piece.path]) : [];
   const srcs = paths.flatMap((f) => {
@@ -251,7 +296,12 @@ function review(p: Project, t: Target, usedBy: string, kitChanged: () => void, r
     : false;
   return pieceRow(piece ? `from ${piece.source}` : "", preview, () => {
     if (!piece) return;
+    rejected.delete(piece);
+    approvedLog.set(p, [...(approvedLog.get(p) ?? []), { what: r.what, cat: catOfTarget(t) }]);
     piece.approved = true;
     kitChanged();
-  }, canRedo ? regen : null);
+  }, canRedo ? regen : null, canRedo ? retryCost(p, t, usedBy) : null, piece ? () => {
+    rejected.add(piece);
+    markRejected(li);
+  } : undefined);
 }

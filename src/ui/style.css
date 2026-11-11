@@ -622,6 +622,14 @@ dialog.approvals .tag { border: 1px solid transparent; }
 dialog.approvals .tag.unapproved { color: var(--ink); background: color-mix(in srgb, var(--c-next) 22%, transparent); border-color: var(--c-next); }
 dialog.approvals .tag.missing { color: var(--danger); background: none; border: 1px dashed var(--danger); }
 dialog.approvals .row.end { justify-content: flex-end; margin-top: 12px; }
+/* Verdicts: a rejected piece stays, struck through, until it is tried again; approved ones keep a quiet check */
+.needs li.rejected strong { text-decoration: line-through; color: var(--muted); }
+.needs li.rejected .piece-preview { opacity: 0.45; filter: grayscale(1); }
+.tag.rejected { color: var(--muted); background: none; border: 1px solid var(--line); }
+.piece .cost { color: var(--muted); font-family: var(--font-mono); text-align: right; }
+.approved-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 2px; }
+.approved-list li { display: flex; gap: 8px; align-items: baseline; padding: 4px 2px; color: var(--muted); font-size: 13px; }
+.approved-list .check { color: var(--band, var(--focus)); font-weight: 700; }
 
 /* Generating: the band of a busy card moves (background-position only); no progress number is shown */
 [aria-busy="true"] > .card-band, .busy > .card-band {

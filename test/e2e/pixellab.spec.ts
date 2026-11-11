@@ -74,10 +74,10 @@ test("pixellab: without a key the door stays shut", async ({ page }) => {
   await expect(page.getByText("Add a PixelLab key in Settings to generate.")).toBeVisible();
 });
 
-test("pixellab: a row is locked while its Redo runs", async ({ page }) => {
+// hero: approved idle from the user, a generated walk still to approve; opens Tweak with the approvals up
+async function openWalkFixture(page: Page, hold?: Promise<void>) {
   await page.addInitScript(() => localStorage.setItem("pcs.keys", JSON.stringify({ pixellab: "test-key" })));
-  let release = () => {};
-  await stubPixellab(page, new Promise<void>((r) => (release = r)));
+  await stubPixellab(page, hold);
   await page.goto("/");
   await page.locator("input[accept*=zip]").waitFor({ state: "attached" });
   // hero: approved idle from the user, a generated walk still to approve
@@ -106,15 +106,36 @@ test("pixellab: a row is locked while its Redo runs", async ({ page }) => {
   await expect(page.getByLabel("Project name")).toHaveValue("Redo fixture");
   await page.getByRole("button", { name: "Tweak", exact: true }).click();
   await openApprovals(page);
+}
+
+test("pixellab: a row is locked while its Try again runs", async ({ page }) => {
+  let release = () => {};
+  await openWalkFixture(page, new Promise<void>((r) => (release = r)));
   const row = page.getByTestId("needs").locator("li", { hasText: "hero walk" });
-  await row.getByRole("button", { name: "Redo" }).click();
+  await row.getByRole("button", { name: "Try again" }).click();
   await page.locator("dialog[open]").getByRole("button", { name: "Run it" }).click();
   // the job is held: nothing on the row can be pressed
-  for (const name of ["Approve", "Redo", "Generate"]) await expect(row.getByRole("button", { name, exact: true })).toBeDisabled();
+  for (const name of ["Approve", "Try again", "Generate"]) await expect(row.getByRole("button", { name, exact: true })).toBeDisabled();
   release();
-  await expect(page.getByText("Generated. Look it over, then Approve or Redo.")).toBeVisible();
+  await expect(page.getByText("Generated. Look it over, then Approve or Try again.")).toBeVisible();
   const fresh = page.getByTestId("needs").locator("li", { hasText: "hero walk" });
   await expect(fresh.getByRole("button", { name: "Approve", exact: true })).toBeEnabled();
+});
+
+test("approval cards: retry cost, a rejected piece stays struck through, an approved one keeps a quiet check", async ({ page }) => {
+  await openWalkFixture(page);
+  const needs = page.getByTestId("needs");
+  const row = needs.locator("li", { hasText: "hero walk" });
+  await expect(row.locator(".cost")).toHaveText("Try again: about 1 generation");
+  await row.getByRole("button", { name: "Reject" }).click();
+  const rej = needs.locator("li.rejected", { hasText: "hero walk" });
+  await expect(rej.locator(".tag")).toHaveText("rejected");
+  await expect(rej.locator("strong")).toHaveCSS("text-decoration-line", "line-through");
+  await expect(rej.getByRole("button", { name: "Try again" })).toBeEnabled();
+  await expect(rej.getByRole("button", { name: "Reject" })).toHaveCount(0);
+  await rej.getByRole("button", { name: "Approve", exact: true }).click();
+  await expect(needs.locator("li", { hasText: "hero walk" })).toHaveCount(0);
+  await expect(page.getByTestId("approved").locator("li", { hasText: "hero walk" })).toContainText("approved");
 });
 
 test("pixellab: Settings shows the balance", async ({ page }) => {
@@ -240,7 +261,7 @@ test("pixellab: the attack prompt can be edited before paying", async ({ page })
   await expect(box).toHaveValue(/wind-up, strike, recover/);
   await box.fill("slashes twice, fast");
   await page.locator("dialog[open]").getByRole("button", { name: "Run it" }).click();
-  await expect(page.getByText("Generated. Look it over, then Approve or Redo.")).toBeVisible();
+  await expect(page.getByText("Generated. Look it over, then Approve or Try again.")).toBeVisible();
   expect(descs).toEqual(["slashes twice, fast"]);
 });
 
@@ -257,7 +278,7 @@ test("pixellab: Attack from the + menu on a character that has none leads to Gen
   await row.getByRole("button", { name: "Generate", exact: true }).click();
   await page.locator("dialog[open]").getByLabel("Motion prompt").fill("");
   await page.locator("dialog[open]").getByRole("button", { name: "Run it" }).click();
-  await expect(page.getByText("Generated. Look it over, then Approve or Redo.")).toBeVisible();
+  await expect(page.getByText("Generated. Look it over, then Approve or Try again.")).toBeVisible();
 });
 
 test("pixellab: Breathe fire from the + menu before it exists adds its flame", async ({ page }) => {

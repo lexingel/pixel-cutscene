@@ -78,7 +78,7 @@ test("elevenlabs: pick a voice, generate a line and a sound, approve", async ({ 
   await dialog.getByRole("button", { name: "Run it" }).click();
   const fresh = needs.locator("li", { hasText: "vo_close" });
   await expect(fresh.locator("audio")).toHaveCount(1);
-  await expect(fresh.getByRole("button", { name: "Redo" })).toBeEnabled();
+  await expect(fresh.getByRole("button", { name: "Try again" })).toBeEnabled();
   await fresh.getByRole("button", { name: "Approve", exact: true }).click();
   await expect(needs.locator("li", { hasText: "vo_close" })).toHaveCount(0);
 

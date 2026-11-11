@@ -15,6 +15,22 @@ import { genAction, genPlan, pixellabKey, words } from "./pixellab";
 type Job = { label: string; run: (key: string, t: PaidTicket) => Promise<void> };
 export type AllPlan = { pixellab: Job[]; eleven: Job[]; gens: { min: number; max: number }; credits: number; skipped: number };
 
+// ElevenLabs bills a voice line per character and a sound effect per second; a posed character's animation takes 2-4 PixelLab gens.
+const creditsFor = (a: { line?: string; seconds?: number }) => (a.line ? [...a.line].length : Math.round(a.seconds! * 20));
+const gensFor = (p: Project, at: At) => (at.kind === "anim" && p.kit.chars[at.char]?.pl ? { min: 2, max: 4 } : { min: 1, max: 1 });
+
+/** What one more try of a piece costs, in words ("about 1 generation"); null when it cannot be tried again here. */
+export function retryCost(p: Project, t: NonNullable<ReturnType<typeof targetOf>>, usedBy: string): string | null {
+  if (t.kind === "asset" && isAudioTarget(t)) {
+    const a = audioPlan(p, usedBy, t.asset);
+    return a.why ? null : `about ${creditsFor(a)} credits`;
+  }
+  const at = (t.kind === "asset" ? { kind: "asset", id: t.id } : t) as At;
+  if (genPlan(p, { ...at, asset: t.kind === "asset" ? t.asset : undefined }).why) return null;
+  const g = gensFor(p, at);
+  return g.min === g.max ? `about ${g.min} generation${g.min === 1 ? "" : "s"}` : `${g.min} to ${g.max} generations`;
+}
+
 export function planAll(p: Project): AllPlan {
   const plan: AllPlan = { pixellab: [], eleven: [], gens: { min: 0, max: 0 }, credits: 0, skipped: 0 };
   const tl = p.tl;
@@ -28,7 +44,7 @@ export function planAll(p: Project): AllPlan {
       const label = a.line ? `Generate voice line ${words(t.id)}` : `Generate sound ${words(t.id)}`;
       if (a.why || seen.has(label)) { plan.skipped += a.why ? 1 : 0; continue; }
       seen.add(label);
-      plan.credits += a.line ? [...a.line].length : Math.round(a.seconds! * 20);
+      plan.credits += creditsFor(a);
       plan.eleven.push({ label, run: (k, tk) => (a.line ? speakInto(p, k, t.id, a.line, a.voice!, tk) : sfxInto(p, k, t.id, a.prompt!, a.seconds!, tk)) });
       continue;
     }
@@ -36,9 +52,9 @@ export function planAll(p: Project): AllPlan {
     const label = genAction(at);
     if (genPlan(p, { ...at, asset: t.kind === "asset" ? t.asset : undefined }).why || seen.has(label)) { plan.skipped += seen.has(label) ? 0 : 1; continue; }
     seen.add(label);
-    const posed = at.kind === "anim" && !!p.kit.chars[at.char]?.pl;
-    plan.gens.min += posed ? 2 : 1;
-    plan.gens.max += posed ? 4 : 1;
+    const g = gensFor(p, at);
+    plan.gens.min += g.min;
+    plan.gens.max += g.max;
     plan.pixellab.push({
       label,
       run: async (k, tk) => {
@@ -81,5 +97,5 @@ export async function generateAll(p: Project, done: () => void): Promise<void> {
       }
     }
   }
-  if (made) toast(`Generated ${pieces(made)}${failed ? `, ${failed} failed` : ""}. Look them over, then Approve or Redo.`);
+  if (made) toast(`Generated ${pieces(made)}${failed ? `, ${failed} failed` : ""}. Look them over, then Approve or Try again.`);
 }
