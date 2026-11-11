@@ -149,6 +149,11 @@ test("store loop: a range as native-size WebM and as a 15 fps GIF; cancel never 
 
 test("export vertical share: a 1080x1920 slice for phones, named _vertical", async ({ page }) => {
   test.setTimeout(180_000);
+  await page.addInitScript(() => {
+    const ask = VideoEncoder.isConfigSupported.bind(VideoEncoder);
+    (window as any).asked = [];
+    VideoEncoder.isConfigSupported = (c: VideoEncoderConfig) => ((window as any).asked.push(`${c.width}x${c.height}`), ask(c));
+  });
   await openFixture(page, { extraAnim: "walk", big: true, sound: true });
   await page.getByRole("button", { name: "④ Export" }).click();
   await page.getByLabel("Shape").selectOption("vertical");
@@ -156,6 +161,7 @@ test("export vertical share: a 1080x1920 slice for phones, named _vertical", asy
   await expect(page.getByLabel("Slice centre x")).toBeVisible();
   await page.getByLabel("Quality").selectOption("share");
   expect(await exportAndSave(page, "Export video", "vertical.mp4")).toBe("Tweak fixture_vertical.mp4");
+  expect(await page.evaluate(() => (window as any).asked)).toContain("1080x1920"); // the codec is checked at the size it encodes
   test.skip(!FFMPEG, NO_FFMPEG);
   const { info } = probe(`${OUT}/vertical.mp4`);
   expect(info).toMatch(/Video: h264.*1080x1920/);
@@ -187,4 +193,22 @@ test("a square draft keeps its DRAFT mark (stamped after the slice is cut)", asy
   const f = frameAt(`${OUT}/sqdraft.mp4`, 0);
   // 1080 tall: k 6, the D's top-left block at (1080 - 24 - 174, 24)
   for (const v of [...f.subarray((27 * 1080 + 885) * 4, (27 * 1080 + 885) * 4 + 3)]) expect(v).toBeGreaterThan(255 - TOL);
+});
+
+test("store loops are made at Best quality, whatever the Quality select says", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.addInitScript(() => {
+    const conf = VideoEncoder.prototype.configure;
+    (window as any).rates = [];
+    VideoEncoder.prototype.configure = function (c: VideoEncoderConfig) { (window as any).rates.push([c.width, c.bitrate]); return conf.call(this, c); };
+  });
+  await openFixture(page, { extraAnim: "walk" });
+  await page.getByRole("button", { name: "④ Export" }).click();
+  await expect(page.getByLabel("Quality")).toHaveValue("share");
+  await page.getByLabel("From (s)").fill("1");
+  await page.getByLabel("To (s)").fill("2");
+  await page.getByLabel("Loop format").selectOption("webm");
+  await exportAndSave(page, "Export loop", "loop_q.webm");
+  const best = await page.evaluate(async () => (await import(`/src/export/${"encode"}.ts`)).bitrate(320, 180, "best"));
+  expect(await page.evaluate(() => (window as any).rates)).toEqual([[320, best]]);
 });

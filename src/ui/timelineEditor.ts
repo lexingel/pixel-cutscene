@@ -89,6 +89,16 @@ export const resizeEntry = (tl: Timeline, id: string, dur: number): EditResult =
     at.e.dur = Math.max(snap(dur), 1 / FPS);
   });
 
+/** `[`: the bar starts at t. A bar with a length keeps its end (trimmed); one without just moves there. */
+export const trimStart = (tl: Timeline, id: string, t: number): EditResult => {
+  const at = find(tl, id);
+  const d = at && (at.kind === "action" || at.kind === "fx") ? at.e.dur : undefined;
+  if (d === undefined) return moveEntry(tl, id, t);
+  const end = Number(at!.e.t) + d;
+  if (snap(t) >= end) return { tl, error: "That is past the bar's end." };
+  return edit(tl, id, (_c, a) => void ((a.e.t = Math.max(0, snap(t))), (a.e.dur = end - a.e.t)));
+};
+
 /** Moves the boundary between two neighbouring shots, so the shots stay tiled. */
 export const moveShotEdge = (tl: Timeline, shotIdA: string, shotIdB: string, t: number): EditResult =>
   edit(tl, shotIdA, (c, at) => {

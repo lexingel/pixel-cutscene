@@ -42,3 +42,17 @@ test("duplicate makes an independent copy", async ({ page }) => {
   await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
   await expect(page.locator(".projects li", { hasText: "Untitled cutscene" })).toHaveCount(1); // the original stays
 });
+
+test("opening a project only reads it: no save until something changes", async ({ page }) => {
+  await page.addInitScript(() => {
+    const put = IDBObjectStore.prototype.put;
+    (window as any).puts = 0;
+    IDBObjectStore.prototype.put = function (...a: Parameters<typeof put>) { (window as any).puts++; return put.apply(this, a); };
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open the sample" }).click();
+  await expect(page).toHaveURL(/#\/p\//);
+  await expect(page.locator(".tracks")).toBeVisible();
+  await page.waitForTimeout(1500); // clip lengths are decoded on open
+  expect(await page.evaluate(() => (window as any).puts)).toBe(1); // the import itself
+});

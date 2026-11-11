@@ -72,23 +72,44 @@ async function job(key: string, path: string, body: object, ticket: PaidTicket, 
   return waitJob(key, id, io);
 }
 
-async function waitJob(key: string, id: string, io: Io): Promise<Record<string, unknown>> {
-  let misses = 0; // the job is already paid for: a few failed status reads in a row are waited out
+// Polls a paid job until done() gives a result; a few failed status reads in a row are waited out, the job is paid for.
+async function poll<T>(key: string, url: string, io: Io, every: number, done: (j: Record<string, any>) => T | undefined): Promise<T> {
+  let misses = 0;
   for (let i = 0; i < 150; i++) {
     let j: Record<string, any>;
     try {
-      j = await (await callFree("pixellab", `${API}/background-jobs/${encodeURIComponent(id)}`, { headers: auth(key) })).json();
+      j = await (await callFree("pixellab", url, { headers: auth(key) })).json();
       misses = 0;
     } catch (e) {
       if (++misses > 3) throw e;
-      await io.wait(4000);
+      await io.wait(every);
       continue;
     }
-    if (j.status === "completed") return j.last_response ?? {};
-    if (j.status === "failed") throw new Error(String(j.last_response?.detail ?? "PixelLab could not make this"));
-    await io.wait(4000);
+    const r = done(j);
+    if (r !== undefined) return r;
+    await io.wait(every);
   }
   throw new Error("PixelLab is taking too long. Try again later.");
+}
+
+const waitJob = (key: string, id: string, io: Io): Promise<Record<string, unknown>> =>
+  poll(key, `${API}/background-jobs/${encodeURIComponent(id)}`, io, 4000, (j) => {
+    if (j.status === "failed") throw new Error(String(j.last_response?.detail ?? "PixelLab could not make this"));
+    return j.status === "completed" ? (j.last_response ?? {}) : undefined;
+  });
+
+// An image brought to w x h: a whole-number upscale is scaled back down, anything else is centred (cropped or padded).
+function fitTo(im: Img, w: number, h: number): Img {
+  const k = im.w / w;
+  if (k > 1 && Number.isInteger(k) && im.h === h * k) return downscale(im, k);
+  if (im.w === w && im.h === h) return im;
+  const px = new Uint8ClampedArray(w * h * 4), ox = Math.floor((im.w - w) / 2), oy = Math.floor((im.h - h) / 2);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const sx = x + ox, sy = y + oy;
+      if (sx >= 0 && sy >= 0 && sx < im.w && sy < im.h) px.set(im.px.subarray((sy * im.w + sx) * 4, (sy * im.w + sx) * 4 + 4), (y * w + x) * 4);
+    }
+  return { w, h, px };
 }
 
 // Result images as base64 strings, whichever shape the response uses.
@@ -196,17 +217,16 @@ export async function genMouths(key: string, face: Img, expr: string, ticket: Pa
   const { background_job_id: id } = await post(key, "/vocal-animation", {
     portrait: await toB64(face, io), mood: MOODS.includes(expr) ? expr : "neutral", viseme_count: 7, engine: "pixminimax", no_background: false,
   }, ticket);
-  for (let i = 0; i < 150; i++) {
-    const j = await (await callFree("pixellab", `${API}/vocal-animation/${encodeURIComponent(id)}`, { headers: auth(key) })).json();
+  const j = await poll(key, `${API}/vocal-animation/${encodeURIComponent(id)}`, io, 6000, (j) => {
     if (j.status === "failed") throw new Error("PixelLab could not make the mouth shapes");
-    if (j.status === "completed" && j.visemes) {
-      const ids: string[] = [...new Set([...(j.completed_visemes ?? []), ...Object.keys(j.visemes)])].filter((v) => j.visemes[v]);
-      const imgs = await Promise.all(ids.map((v) => io.decode(typeof j.visemes[v] === "string" ? j.visemes[v] : j.visemes[v].base64)));
-      return ids.map((v, k) => ({ id: v, img: imgs[k] }));
-    }
-    await io.wait(6000);
-  }
-  throw new Error("PixelLab is taking too long. Try again later.");
+    if (j.status !== "completed") return undefined;
+    if (!j.visemes || !Object.keys(j.visemes).length) throw new Error("PixelLab finished but sent no mouth shapes");
+    return j;
+  });
+  const ids: string[] = [...new Set([...(j.completed_visemes ?? []), ...Object.keys(j.visemes)])].filter((v) => j.visemes[v]);
+  const imgs = await Promise.all(ids.map((v) => io.decode(typeof j.visemes[v] === "string" ? j.visemes[v] : j.visemes[v].base64)));
+  // a mouth at another size would make the close-up jump when lip-sync starts
+  return ids.map((v, k) => ({ id: v, img: fitTo(imgs[k], face.w, face.h) }));
 }
 
 export const MOTION: Record<string, string> = {
@@ -337,7 +357,7 @@ export async function genFaceInto(p: Project, key: string, face: string, expr: s
   const blob = await io.encode(img);
   guard(at(), `${face}'s ${expr} face`);
   const old = p.kit.faces[face]?.[expr];
-  if (old) p.files.delete(old.path);
+  if (old) dropFiles(p, [old.path, ...(old.mouths ?? [])]); // the mouths were drawn on the old face
   const path = freePath(p, `faces/${face}/`, `${expr}.png`);
   p.files.set(path, blob);
   (p.kit.faces[face] ??= {})[expr] = { approved: false, source: "pixellab", ref: baseEntry?.path ?? ref.path, path };

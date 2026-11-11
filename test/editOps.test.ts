@@ -5,7 +5,7 @@ import { camAt } from "../src/core/cam";
 import { newProject } from "../src/core/project";
 import { swaps, targetOf, useOwnFiles } from "../src/ui/approvals";
 import {
-  History, addAction, addEntry, deleteEntry, lanes, moveEntry, moveShotEdge, playhead, resizeEntry, setCamera, setField, splitShot,
+  History, addAction, addEntry, deleteEntry, lanes, moveEntry, moveShotEdge, playhead, resizeEntry, setCamera, setField, splitShot, trimStart,
 } from "../src/ui/timelineEditor";
 
 const tl = (): Timeline => ({
@@ -177,6 +177,10 @@ test("approvals_use_own_files", async () => {
   expect(p.files.has("chars/hero/walk/walk_10.png")).toBe(true);
   await useOwnFiles(p, { kind: "face", face: "hero", expr: "amazed" }, [png("Face.PNG")]);
   expect(p.kit.faces.hero.amazed).toEqual({ approved: true, source: "user", path: "faces/hero/amazed.png" });
+  p.kit.faces.hero.amazed.mouths = ["faces/hero/amazed_mouth/A.png"];
+  p.files.set("faces/hero/amazed_mouth/A.png", png("A.png"));
+  await useOwnFiles(p, { kind: "face", face: "hero", expr: "amazed" }, [png("new.png")]);
+  expect([...p.files.keys()].filter((k) => k.startsWith("faces/"))).toEqual(["faces/hero/amazed.png"]); // old face and its mouths gone
   await useOwnFiles(p, { kind: "asset", id: "line1", asset: "voice" }, [new File(["a"], "take.ogg")]);
   expect(p.kit.assets.line1).toEqual({ approved: true, source: "user", kind: "voice", path: "audio/line1.ogg" });
   // the fx branch decodes the PNG (createImageBitmap), so it is left to the browser
@@ -217,4 +221,14 @@ test("overlapping_bars_stack_in_lanes", () => {
   expect(lanes([{ t: 2, len: 0.1 }, { t: 2.1, len: 1 }, { t: 4, len: 1 }], 0.5)).toEqual([0, 1, 0]);
   expect(lanes([{ t: 0, len: 3 }, { t: 1, len: 1 }, { t: 1.5, len: 1 }], 0.1)).toEqual([0, 1, 2]);
   expect(lanes([{ t: 3, len: 1 }, { t: 0, len: 1 }], 0.1)).toEqual([0, 0]); // any order
+});
+
+test("[ trims a bar with a length from the start: its end stays put", () => {
+  const r = trimStart(tl(), "a1", 2); // walk 1..3 s
+  expect(r.tl.actors[0].actions[0]).toMatchObject({ t: 2, dur: 1 });
+  expect(trimStart(tl(), "a1", 3.5).tl.actors[0].actions[0]).toMatchObject({ t: 1, dur: 2 }); // past the end: nothing to keep, unchanged
+  expect(trimStart(tl(), "a1", 3.5).error).toBeTruthy();
+  const t2 = tl();
+  t2.actors[0].actions.push({ id: "a2", t: 4, do: "hurt" });
+  expect(trimStart(t2, "a2", 4.5).tl.actors[0].actions[1].t).toBe(4.5); // no length: the bar just moves
 });

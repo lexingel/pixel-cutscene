@@ -26,7 +26,7 @@ import { renderInspector } from "./inspector";
 import { emptyTimeline } from "./scene";
 import type { Step } from "./steps";
 import {
-  FPS, History, addAction, addEntry, deleteEntry, find, lanes, moveEntry, moveShotEdge, newId, playhead, resizeEntry, setField, snap, splitShot, insertShot, panShot, transition, type EditResult,
+  FPS, History, addAction, addEntry, deleteEntry, find, lanes, moveEntry, moveShotEdge, newId, playhead, resizeEntry, setField, snap, splitShot, trimStart, insertShot, panShot, transition, type EditResult,
 } from "./timelineEditor";
 
 const ACTIONS_MENU = ["idle", "walk", "move", "look_around", "startle", "hurt", "dust", "say"];
@@ -161,24 +161,25 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
   // ---- audio: decoded lazily on first play, started and stopped to follow activeAudio(t)
   let ctx: AudioContext | null = null;
   const bufs = new Map<string, AudioBuffer>(); // by clip id
+  const decodedFrom = new Map<string, Blob>(); // the file each buffer came from: a redone clip is decoded again
   const voices = new Map<string, AudioBufferSourceNode>(); // by audio entry id
   const has = (path: string) => p.files.has(path);
   // decodes every usable clip not decoded yet; an offline context needs no click, so the bars get their length on open
   async function decodeClips(c: BaseAudioContext, quiet: boolean) {
-    let learnt = false;
     for (const e of tl().audio) {
       const a = p.kit.assets[e.clip];
-      if (bufs.has(e.clip) || !a || assetStatus(p.kit, e.clip, false, has) !== "ok") continue;
+      const file = a && p.files.get(a.path);
+      if (!a || !file || decodedFrom.get(e.clip) === file || assetStatus(p.kit, e.clip, false, has) !== "ok") continue;
       try {
         const b = await decodeAudio(c, p, a.path);
         bufs.set(e.clip, b);
-        const len = Math.round(b.duration * 100) / 100;
-        if (a.len !== len) (a.len = len), (learnt = true); // voice bubbles last as long as their clip
+        decodedFrom.set(e.clip, file);
+        // voice bubbles last as long as their clip; kept in memory, saved with the next real edit (opening is not an edit)
+        a.len = Math.round(b.duration * 100) / 100;
       } catch {
         if (!quiet) toast(`Could not play ${e.clip}: the file is not audio this browser can read.`, "error");
       }
     }
-    if (learnt) changed();
   }
   const clipLengths = () => decodeClips(new OfflineAudioContext(2, 1, 48000), true).then(() => draw());
   async function loadAudio() {
@@ -537,7 +538,7 @@ export function renderTweak(root: HTMLElement, p: Project, changed: () => void, 
         const step = (e.shiftKey ? 1 / FPS : 1) * (e.key === "ArrowLeft" ? -1 : 1);
         seek(snap(t + step));
       } else if (e.key === "Home" || e.key === "End") seek(e.key === "Home" ? 0 : tl().duration);
-      else if (e.key === "[" && selected) commit(moveEntry(tl(), selected, t)); // the bar starts here
+      else if (e.key === "[" && selected) commit(trimStart(tl(), selected, t)); // the bar starts here, its end stays
       else if (e.key === "]" && selected) { // the bar ends here
         const at = find(tl(), selected);
         const t0 = at && "t" in at.e ? Number(at.e.t) : NaN;

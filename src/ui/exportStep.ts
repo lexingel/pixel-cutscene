@@ -98,7 +98,8 @@ export function renderExport(root: HTMLElement, p: Project, go: (n: Step) => voi
     const range: [number, number] = [Number($<HTMLInputElement>("[data-act=from]").value), Number($<HTMLInputElement>("[data-act=to]").value)];
     buttons.forEach((b) => (b.disabled = true)); // before any await, so a double click starts one export
     draft.disabled = true;
-    const codec = await codecP;
+    // a slice is encoded at its own size: the wide size's answer may not hold for 1080x1920
+    const codec = kind === "full" && shape.value !== "wide" ? await pickCodec(...OUT[shape.value]) : await codecP;
     const ext = kind === "full" ? codec : kind === "loop-gif" ? "gif" : "webm";
     const tag = kind !== "full" ? "_loop" : shape.value === "wide" ? "" : `_${shape.value}`;
     const name = `${p.name}${tag}${draft.checked ? "_DRAFT" : ""}.${ext}`;

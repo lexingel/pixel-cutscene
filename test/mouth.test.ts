@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import miniText from "./fixtures/mini.json?raw";
 import { confirmPaid, type PaidTicket } from "../src/ai/confirm";
 import type { Img, Kit } from "../src/core/kit";
-import { MOUTH_MS, mouthAt } from "../src/core/mouth";
+import { MOUTH_MS, mouthAt, mouthIndex } from "../src/core/mouth";
 import { newProject } from "../src/core/project";
 import { renderFrame } from "../src/core/render";
 import type { Timeline } from "../src/core/types";
@@ -69,4 +69,41 @@ test("mouths_are_generated_from_the_approved_face", async () => {
   const m = p.kit.faces.hero.angry.mouths!;
   expect(m.map((x) => x.split("/").pop())).toEqual(["rest.png", "A.png", "O.png"]); // in the job's order: closed first
   expect(m.every((x) => p.files.has(x))).toBe(true);
+});
+
+const mouthRun = async (reply: (n: number) => Response, faceW = 32) => {
+  let n = 0;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.endsWith("/vocal-animation") ? new Response(JSON.stringify({ background_job_id: "v1" })) : reply(n++))));
+  const p = newProject("t");
+  p.files.set("faces/hero/angry.png", new Blob([pngBytes(figure(faceW, faceW, 11, 14)) as BlobPart]));
+  p.kit.faces.hero = { angry: { approved: true, source: "user", path: "faces/hero/angry.png" } };
+  const tk = (await confirmPaid("pixellab", "t", "free", 1, async () => true)) as PaidTicket;
+  await genMouthsInto(p, "k", "hero", "angry", tk, testIo);
+  return { p, polls: () => n };
+};
+
+test("a failed status read is waited out: the mouths are already paid for", async () => {
+  const shape = toBase64(pngBytes(figure(32, 32, 11, 14)));
+  const { p } = await mouthRun((n) => (n === 0 ? new Response("busy", { status: 503 }) : new Response(JSON.stringify({ status: "completed", visemes: { rest: { base64: shape } } }))));
+  expect(p.kit.faces.hero.angry.mouths).toHaveLength(1);
+});
+
+test("a finished job with no mouth shapes stops at once", async () => {
+  let polls = 0;
+  await expect(mouthRun(() => (polls++, new Response(JSON.stringify({ status: "completed" }))))).rejects.toThrow(/no mouth shapes/);
+  expect(polls).toBe(1);
+});
+
+test("mouth shapes come back at the face's size", async () => {
+  const big = toBase64(pngBytes(figure(64, 64, 22, 28))); // a 2x answer for a 32 px face
+  const odd = toBase64(pngBytes(figure(30, 34, 11, 14)));
+  const { p } = await mouthRun(() => new Response(JSON.stringify({ status: "completed", visemes: { rest: { base64: big }, A: { base64: odd } } })));
+  for (const path of p.kit.faces.hero.angry.mouths!) {
+    const im = await testIo.decode(toBase64(new Uint8Array(await p.files.get(path)!.arrayBuffer())));
+    expect([im.w, im.h]).toEqual([32, 32]);
+  }
+});
+
+test("Turkish İ and ı open the mouth like i, as in Godot (tests/test_mouth.gd)", () => {
+  expect([..."İıiI"].map((c) => mouthIndex(c, 7))).toEqual([3, 3, 3, 3]);
 });

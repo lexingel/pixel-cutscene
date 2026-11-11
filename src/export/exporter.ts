@@ -114,7 +114,7 @@ export async function exportVideo(p: Project, opts: ExportOpts, codec?: Containe
     renderFrame(input, t, native);
     const z = frameZoom(input, t);
     if (z) {
-      zoomFrame(native, z.z, z.x, z.y, kk, zoomed);
+      zoomFrame(native, z.z, z.x, z.y, kk, zoomed, kk === k && kind === "full" ? p.canvas.exportScale : kk); // zoom steps as in the preview, at any output scale
       if (input.draft && !vert) watermark({ w: W * kk, h: H * kk, px: zoomed.subarray(0, W * kk * H * kk * 4) });
       return zoomed;
     }
@@ -136,7 +136,7 @@ export async function exportVideo(p: Project, opts: ExportOpts, codec?: Containe
 
   const [outW, outH] = vert ? [vert.outW, vert.outH] : [W * k, H * k];
   const container = kind === "full" ? (codec ?? (await pickCodec(outW, outH))) : "webm";
-  const sink = openSink(container, outW, outH, fps, kind === "full", opts.quality);
+  const sink = openSink(container, outW, outH, fps, kind === "full", kind === "full" ? opts.quality : "best"); // a store upscales a loop: keep it sharp
   const out = vert ? new Uint8ClampedArray(outW * outH * 4) : null;
   const x0 = vert ? vert.sliceX(opts.slice!.cx) * k : 0;
   // a vertical video: the slice of the frame at x0, on black

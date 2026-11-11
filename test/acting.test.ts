@@ -144,6 +144,17 @@ test("a_death_stays_down", () => {
   const a = act({ actions: [{ id: "w", t: 0, do: "anim:death" }] });
   expect(pose(a, 5, f)!.img).toBe(die[1]);
 });
+test("moves that end on the ground stay there: kneel, sit, fall, lie, crouch, ko, defeat, collapse", () => {
+  const down = [img(), img()];
+  for (const n of ["kneel", "sit_down", "fall", "lie", "crouch", "ko", "defeat", "collapse", "Death"]) {
+    const a = act({ actions: [{ id: "w", t: 0, do: `anim:${n}` }] });
+    expect(pose(a, 5, (_c, m) => (m === n ? down : m === "idle" ? idle : []))!.img, n).toBe(down[1]);
+  }
+  for (const n of ["spoke", "position", "smoke"]) { // a word inside another word does not count
+    const a = act({ actions: [{ id: "w", t: 0, do: `anim:${n}` }] });
+    expect(pose(a, 5, (_c, m) => (m === n ? down : m === "idle" ? idle : []))!.img, n).not.toBe(down[1]);
+  }
+});
 test("a_bar_without_a_duration_is_as_long_as_what_plays", () => {
   const f = (_c: string, n: string) => (n === "attack" ? [img(), img(), img()] : n === "hurt" ? hurt : []);
   expect(actionSpan({ id: "a", t: 0, do: "anim:attack" }, "w", f)).toBeCloseTo(3 / ANIM_FPS);

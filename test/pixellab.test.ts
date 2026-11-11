@@ -289,3 +289,14 @@ test("a_background_is_made_at_canvas_size_when_it_fits", async () => {
   await genBackgroundInto(p, KEY, "cave2", "a cave", await tk(), testIo);
   expect(body(calls[0]).image_size).toEqual({ width: 480, height: 272 }); // too big: half size, shown at 2x
 });
+
+test("a remade face drops the old face's file and its mouth shapes", async () => {
+  const p = await withRef();
+  p.files.set("faces/hero/angry.png", new Blob(["f"]));
+  p.files.set("faces/hero/angry_mouth/A.png", new Blob(["m"]));
+  p.kit.faces.hero = { angry: { approved: false, source: "pixellab", path: "faces/hero/angry.png", mouths: ["faces/hero/angry_mouth/A.png"] } };
+  serve("job-accepted", "job-edit-completed");
+  await genFaceInto(p, KEY, "hero", "angry", await tk(), testIo);
+  expect(p.kit.faces.hero.angry.mouths).toBeUndefined();
+  expect(p.files.has("faces/hero/angry_mouth/A.png")).toBe(false);
+});

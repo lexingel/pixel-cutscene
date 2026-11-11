@@ -11,7 +11,8 @@ const CLASS = ["a", "o", "ei", "u", "fv", "ltdn", "szcjkg", "rwqy", "h"];
 
 export function mouthIndex(ch: string, n: number): number {
   if (n < 2 || CLOSED.test(ch)) return 0;
-  const c = CLASS.findIndex((s) => s.includes(ch.toLowerCase()));
+  const l = ch === "İ" || ch === "ı" ? "i" : ch.toLowerCase(); // JS lowers İ to two characters; Godot (mouth.gd) maps it the same way
+  const c = CLASS.findIndex((s) => s.includes(l));
   return 1 + ((c < 0 ? ch.charCodeAt(0) : c) % (n - 1));
 }
 

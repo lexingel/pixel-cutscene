@@ -66,6 +66,8 @@ export async function useOwnFiles(p: Project, t: Target, files: File[]): Promise
     });
     (p.kit.chars[t.char] ??= { view: "side", anims: {} }).anims[t.anim] = { approved: true, source: "user", frames };
   } else if (t.kind === "face") {
+    const old = p.kit.faces[t.face]?.[t.expr];
+    if (old) [old.path, ...(old.mouths ?? [])].forEach((f) => p.files.delete(f)); // the mouths were drawn on the old face
     const path = freePath(p, `faces/${t.face}/`, `${t.expr}${ext(files[0].name)}`);
     p.files.set(path, files[0]);
     (p.kit.faces[t.face] ??= {})[t.expr] = { approved: true, source: "user", path };

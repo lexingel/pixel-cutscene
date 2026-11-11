@@ -6,7 +6,8 @@ import type { Img } from "./kit";
 export const ANIM_FPS = 12;
 
 // a move that ends lying down (or asleep) stays on its last frame instead of standing up again
-const STAYS = /death|die|dead|faint|sleep|knock/i;
+// a word (or the start of one) in the move's name; "position" or "smoke" do not count. Same list in acting.gd
+const STAYS = /(^|[^a-z])(death|die|dead|dying|faint|sleep|knock|fall|kneel|sit|lie|lying|crouch|ko|defeat|collapse)/i;
 
 type Frames = (char: string, anim: string) => Img[];
 
